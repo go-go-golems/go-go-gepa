@@ -29,6 +29,12 @@ func TestConfigWithDefaults(t *testing.T) {
 	if got.MergePromptTemplate == "" {
 		t.Fatalf("expected MergePromptTemplate to be set")
 	}
+	if got.MergeScheduler != "probabilistic" {
+		t.Fatalf("expected MergeScheduler=probabilistic, got %q", got.MergeScheduler)
+	}
+	if got.MaxMergesDue != 2 {
+		t.Fatalf("expected MaxMergesDue=2, got %d", got.MaxMergesDue)
+	}
 	if got.ComponentSelector != "round_robin" {
 		t.Fatalf("expected ComponentSelector=round_robin, got %q", got.ComponentSelector)
 	}

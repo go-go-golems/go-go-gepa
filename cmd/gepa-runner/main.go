@@ -46,13 +46,17 @@ type OptimizeSettings struct {
 	Seed              string  `glazed:"seed"`
 	SeedFile          string  `glazed:"seed-file"`
 	SeedCandidate     string  `glazed:"seed-candidate"`
+	Seedless          bool    `glazed:"seedless"`
 	Objective         string  `glazed:"objective"`
 	MaxEvalCalls      int     `glazed:"max-evals"`
 	BatchSize         int     `glazed:"batch-size"`
 	MergeProb         float64 `glazed:"merge-prob"`
+	MergeScheduler    string  `glazed:"merge-scheduler"`
+	MaxMergesDue      int     `glazed:"max-merges-due"`
 	MaxSideInfoChars  int     `glazed:"max-side-info-chars"`
 	OptimizableKeys   string  `glazed:"optimizable-keys"`
 	ComponentSelector string  `glazed:"component-selector"`
+	ShowEvents        bool    `glazed:"show-events"`
 	OutPrompt         string  `glazed:"out-prompt"`
 	OutReport         string  `glazed:"out-report"`
 	Record            bool    `glazed:"record"`
@@ -75,13 +79,17 @@ func NewOptimizeCommand() (*OptimizeCommand, error) {
 			fields.New("seed", fields.TypeString, fields.WithHelp("Seed prompt text (overrides --seed-file)")),
 			fields.New("seed-file", fields.TypeString, fields.WithHelp("Path to seed prompt file")),
 			fields.New("seed-candidate", fields.TypeString, fields.WithHelp("Path to seed candidate file (JSON or YAML) containing a map of parameter names to strings. If set, overrides --seed/--seed-file and enables multi-parameter optimization.")),
+			fields.New("seedless", fields.TypeBool, fields.WithHelp("Allow seedless initialization by asking the plugin for initialCandidate()."), fields.WithDefault(false)),
 			fields.New("objective", fields.TypeString, fields.WithHelp("Natural-language optimization objective (used in reflection prompt)")),
 			fields.New("max-evals", fields.TypeInteger, fields.WithHelp("Max evaluator calls (each example eval counts as 1)"), fields.WithDefault(200)),
 			fields.New("batch-size", fields.TypeInteger, fields.WithHelp("Minibatch size per iteration"), fields.WithDefault(8)),
 			fields.New("merge-prob", fields.TypeFloat, fields.WithHelp("Probability of attempting a merge (crossover) step between two prompts (0 disables)"), fields.WithDefault(0.0)),
+			fields.New("merge-scheduler", fields.TypeString, fields.WithHelp("Merge scheduling policy: probabilistic (default) or stagnation_due."), fields.WithDefault("probabilistic")),
+			fields.New("max-merges-due", fields.TypeInteger, fields.WithHelp("Cap for internal merges_due counter when using merge-scheduler=stagnation_due."), fields.WithDefault(2)),
 			fields.New("max-side-info-chars", fields.TypeInteger, fields.WithHelp("Cap formatted side-info chars passed to reflection LLM (0 = uncapped)"), fields.WithDefault(8000)),
 			fields.New("optimizable-keys", fields.TypeString, fields.WithHelp("Comma-separated list of candidate keys to optimize (defaults to all keys in the seed candidate).")),
 			fields.New("component-selector", fields.TypeString, fields.WithHelp("Which parameter(s) to update per iteration: round_robin (default) or all."), fields.WithDefault("round_robin")),
+			fields.New("show-events", fields.TypeBool, fields.WithHelp("Print optimizer event stream (merge/mutate attempted/accepted/rejected)."), fields.WithDefault(false)),
 			fields.New("out-prompt", fields.TypeString, fields.WithHelp("Write best prompt to this file (optional)")),
 			fields.New("out-report", fields.TypeString, fields.WithHelp("Write JSON optimization report to this file (optional)")),
 			fields.New("record", fields.TypeBool, fields.WithHelp("Persist run/candidate/eval metrics to SQLite"), fields.WithDefault(false)),
@@ -113,36 +121,6 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 
 	if strings.TrimSpace(s.ScriptPath) == "" {
 		return fmt.Errorf("--script is required")
-	}
-
-	var seedCandidate gepaopt.Candidate
-	seedTextForRecord := ""
-	if strings.TrimSpace(s.SeedCandidate) != "" {
-		cand, err := loadSeedCandidateFile(s.SeedCandidate)
-		if err != nil {
-			return err
-		}
-		if len(cand) == 0 {
-			return fmt.Errorf("seed candidate is empty (check --seed-candidate)")
-		}
-		seedCandidate = cand
-		if p, ok := cand["prompt"]; ok {
-			seedTextForRecord = strings.TrimSpace(p)
-		}
-		if seedTextForRecord == "" {
-			blob, _ := json.Marshal(cand)
-			seedTextForRecord = string(blob)
-		}
-	} else {
-		seedText, err := resolveSeedText(s.Seed, s.SeedFile)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(seedText) == "" {
-			return fmt.Errorf("seed prompt is empty (use --seed, --seed-file, or --seed-candidate)")
-		}
-		seedCandidate = gepaopt.Candidate{"prompt": seedText}
-		seedTextForRecord = seedText
 	}
 
 	// Ensure JS-side engine creation resolves the same profile by default.
@@ -191,6 +169,56 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 	log.Info().Str("plugin_id", meta.ID).Str("plugin_name", meta.Name).Msg("Loaded optimizer plugin")
 
+	var seedCandidate gepaopt.Candidate
+	seedTextForRecord := ""
+	if strings.TrimSpace(s.SeedCandidate) != "" {
+		cand, err := loadSeedCandidateFile(s.SeedCandidate)
+		if err != nil {
+			return err
+		}
+		if len(cand) == 0 {
+			return fmt.Errorf("seed candidate is empty (check --seed-candidate)")
+		}
+		seedCandidate = cand
+		if p, ok := cand["prompt"]; ok {
+			seedTextForRecord = strings.TrimSpace(p)
+		}
+		if seedTextForRecord == "" {
+			blob, _ := json.Marshal(cand)
+			seedTextForRecord = string(blob)
+		}
+	} else {
+		seedText, err := resolveSeedText(s.Seed, s.SeedFile)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(seedText) != "" {
+			seedCandidate = gepaopt.Candidate{"prompt": seedText}
+			seedTextForRecord = seedText
+		} else if s.Seedless {
+			cand, err := plugin.InitialCandidate(pluginEvaluateOptions{
+				Profile:       profile,
+				EngineOptions: engineOptions,
+			})
+			if err != nil {
+				return err
+			}
+			if len(cand) == 0 {
+				return fmt.Errorf("seedless mode requested but plugin returned empty initial candidate")
+			}
+			seedCandidate = cand
+			if p, ok := cand["prompt"]; ok {
+				seedTextForRecord = strings.TrimSpace(p)
+			}
+			if seedTextForRecord == "" {
+				blob, _ := json.Marshal(cand)
+				seedTextForRecord = string(blob)
+			}
+		} else {
+			return fmt.Errorf("seed prompt is empty (use --seed, --seed-file, --seed-candidate, or --seedless with plugin initialCandidate())")
+		}
+	}
+
 	// Load dataset.
 	var examples []any
 	if strings.TrimSpace(s.DatasetPath) != "" {
@@ -219,6 +247,8 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 		MaxEvalCalls:     s.MaxEvalCalls,
 		BatchSize:        s.BatchSize,
 		MergeProbability: s.MergeProb,
+		MergeScheduler:   strings.TrimSpace(s.MergeScheduler),
+		MaxMergesDue:     s.MaxMergesDue,
 		Objective:        s.Objective,
 		MaxSideInfoChars: s.MaxSideInfoChars,
 	}
@@ -249,6 +279,40 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 				Profile:       profile,
 				EngineOptions: engineOptions,
 			})
+		})
+	}
+	if plugin.HasSelectComponents() {
+		opt.SetComponentSelectorFunc(func(ctx context.Context, in gepaopt.ComponentSelectionInput) ([]string, error) {
+			return plugin.SelectComponents(in, pluginEvaluateOptions{
+				Profile:       profile,
+				EngineOptions: engineOptions,
+			})
+		})
+	}
+	if plugin.HasComponentSideInfo() {
+		opt.SetSideInfoFunc(func(ctx context.Context, in gepaopt.SideInfoInput) (string, error) {
+			return plugin.ComponentSideInfo(in, pluginEvaluateOptions{
+				Profile:       profile,
+				EngineOptions: engineOptions,
+			})
+		})
+	}
+	if s.ShowEvents {
+		opt.SetEventHook(func(event gepaopt.OptimizerEvent) {
+			fmt.Fprintf(
+				w,
+				"[event] iter=%d type=%s op=%s parent=%d parent2=%d child=%d accepted=%v baseline=%.6f child=%.6f keys=%s\n",
+				event.Iteration,
+				event.Type,
+				event.Operation,
+				event.ParentID,
+				event.Parent2ID,
+				event.ChildID,
+				event.Accepted,
+				event.BaselineScore,
+				event.ChildScore,
+				strings.Join(event.UpdatedKeys, ","),
+			)
 		})
 	}
 

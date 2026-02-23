@@ -34,6 +34,64 @@ type MergeInput struct {
 // If nil, the optimizer falls back to Reflector.Merge.
 type MergeFunc func(ctx context.Context, in MergeInput) (mergedParam string, raw string, err error)
 
+// OptimizerEventType identifies an emitted optimizer event.
+type OptimizerEventType string
+
+const (
+	OptimizerEventMutateAttempted OptimizerEventType = "mutate_attempted"
+	OptimizerEventMutateAccepted  OptimizerEventType = "mutate_accepted"
+	OptimizerEventMutateRejected  OptimizerEventType = "mutate_rejected"
+	OptimizerEventMergeAttempted  OptimizerEventType = "merge_attempted"
+	OptimizerEventMergeAccepted   OptimizerEventType = "merge_accepted"
+	OptimizerEventMergeRejected   OptimizerEventType = "merge_rejected"
+)
+
+// OptimizerEvent captures one observable optimization transition.
+type OptimizerEvent struct {
+	Type          OptimizerEventType `json:"type"`
+	Iteration     int                `json:"iteration"`
+	Operation     string             `json:"operation"`
+	ParentID      int                `json:"parent_id"`
+	Parent2ID     int                `json:"parent2_id"`
+	ChildID       int                `json:"child_id"`
+	UpdatedKeys   []string           `json:"updated_keys,omitempty"`
+	ParentScore   float64            `json:"parent_score"`
+	Parent2Score  *float64           `json:"parent2_score,omitempty"`
+	BaselineScore float64            `json:"baseline_score"`
+	ChildScore    float64            `json:"child_score"`
+	Accepted      bool               `json:"accepted"`
+	CallsUsed     int                `json:"calls_used"`
+}
+
+// EventHook observes optimizer events.
+type EventHook func(event OptimizerEvent)
+
+// ComponentSelectionInput is passed to an optional component selector hook.
+type ComponentSelectionInput struct {
+	Operation      string      `json:"operation"`
+	ParentID       CandidateID `json:"parent_id"`
+	Parent2ID      CandidateID `json:"parent2_id"`
+	Candidate      Candidate   `json:"candidate"`
+	AvailableKeys  []string    `json:"available_keys"`
+	NextParamIndex int         `json:"next_param_index"`
+}
+
+// ComponentSelectorFunc allows caller-defined component/key selection per iteration.
+type ComponentSelectorFunc func(ctx context.Context, in ComponentSelectionInput) ([]string, error)
+
+// SideInfoInput is passed to an optional side-info hook.
+type SideInfoInput struct {
+	Operation string        `json:"operation"`
+	ParamKey  string        `json:"param_key"`
+	Examples  []any         `json:"examples"`
+	Evals     []ExampleEval `json:"evals"`
+	MaxChars  int           `json:"max_chars"`
+	Default   string        `json:"default"`
+}
+
+// SideInfoFunc allows caller-defined side-info generation per component.
+type SideInfoFunc func(ctx context.Context, in SideInfoInput) (string, error)
+
 // Optimizer runs a GEPA-style reflective evolutionary loop.
 //
 // This is intentionally “GEPA-inspired” rather than a 1:1 port of the Python reference.
@@ -43,6 +101,10 @@ type Optimizer struct {
 	eval      EvaluateFunc
 	reflector *Reflector
 	mergeFn   MergeFunc
+
+	eventHook           EventHook
+	componentSelectorFn ComponentSelectorFunc
+	sideInfoFn          SideInfoFunc
 
 	rng       *rand.Rand
 	cache     map[string]map[int]EvalResult // candidateHash -> exampleIndex -> result
@@ -54,6 +116,9 @@ type Optimizer struct {
 	// paramKeys are the ordered candidate keys that can be optimized.
 	// Determined at Optimize() time from cfg.OptimizableKeys or the seed candidate.
 	paramKeys []string
+
+	iteration int
+	mergesDue int
 }
 
 type candidateNode struct {
@@ -142,6 +207,30 @@ func (o *Optimizer) SetMergeFunc(fn MergeFunc) {
 	o.mergeFn = fn
 }
 
+// SetEventHook installs an optional observability hook.
+func (o *Optimizer) SetEventHook(fn EventHook) {
+	if o == nil {
+		return
+	}
+	o.eventHook = fn
+}
+
+// SetComponentSelectorFunc installs an optional per-iteration component selector.
+func (o *Optimizer) SetComponentSelectorFunc(fn ComponentSelectorFunc) {
+	if o == nil {
+		return
+	}
+	o.componentSelectorFn = fn
+}
+
+// SetSideInfoFunc installs an optional side-info hook.
+func (o *Optimizer) SetSideInfoFunc(fn SideInfoFunc) {
+	if o == nil {
+		return
+	}
+	o.sideInfoFn = fn
+}
+
 // CallsUsed returns the number of evaluator calls consumed so far.
 func (o *Optimizer) CallsUsed() int {
 	if o == nil {
@@ -172,6 +261,8 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 		return nil, err
 	}
 	o.paramKeys = keys
+	o.mergesDue = 0
+	o.iteration = 0
 
 	// Initialize pool with seed.
 	seedLastUpdated := map[string]CandidateID{}
@@ -203,6 +294,7 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 	bestNode := seedNode
 
 	for o.callsUsed < o.cfg.MaxEvalCalls {
+		o.iteration++
 		callsAtIterStart := o.callsUsed
 		remaining := o.remainingBudget()
 		if remaining <= 0 {
@@ -214,7 +306,7 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 			break
 		}
 
-		useMerge := o.cfg.MergeProbability > 0 && len(o.pool) >= 2 && o.rng.Float64() < o.cfg.MergeProbability
+		useMerge := o.shouldAttemptMerge()
 		var parent2 *candidateNode
 		if useMerge {
 			parent2 = o.selectParentDistinct(parent.ID)
@@ -252,7 +344,10 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 		var parent2Stats CandidateStats
 
 		childID := CandidateID(len(o.pool))
-		components := o.selectComponents(parent)
+		components, err := o.selectComponentsForIteration(ctx, parent, parent2, useMerge)
+		if err != nil {
+			return nil, err
+		}
 		if len(components) == 0 {
 			break
 		}
@@ -283,8 +378,14 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 
 			rawByKey := map[string]string{}
 			for _, key := range components {
-				sideInfoA := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
-				sideInfoB := FormatSideInfoForKey(examples, parent2Evals, key, o.cfg.MaxSideInfoChars)
+				sideInfoA, err := o.buildSideInfo(ctx, "merge_parent_a", key, examples, parentEvals)
+				if err != nil {
+					return nil, err
+				}
+				sideInfoB, err := o.buildSideInfo(ctx, "merge_parent_b", key, examples, parent2Evals)
+				if err != nil {
+					return nil, err
+				}
 
 				mergedText, mergeRaw, err := o.proposeMerge(ctx, MergeInput{
 					ParentA:   cloneCandidate(parent.Candidate),
@@ -310,7 +411,10 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 			childLastUpdated = cloneLastUpdated(parent.LastUpdated)
 			rawByKey := map[string]string{}
 			for _, key := range components {
-				sideInfo := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
+				sideInfo, err := o.buildSideInfo(ctx, "mutate", key, examples, parentEvals)
+				if err != nil {
+					return nil, err
+				}
 				current := parent.Candidate[key]
 
 				childText, raw, err := o.reflector.Propose(ctx, current, sideInfo)
@@ -360,6 +464,9 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
 		}
 
 		accepted := o.acceptChild(baselineStats, childStats)
+		o.updateMergeDue(accepted)
+		o.emitOutcomeEvents(operation, parent, parent2, childNode, updatedKeys, parentStats, parent2Stats, baselineStats, childStats, accepted)
+
 		if accepted {
 			o.pool = append(o.pool, childNode)
 			// Update best based on global stats available so far.
@@ -416,6 +523,120 @@ func (o *Optimizer) acceptChild(parent, child CandidateStats) bool {
 	}
 
 	return child.MeanScore > parent.MeanScore+o.cfg.Epsilon
+}
+
+func (o *Optimizer) shouldAttemptMerge() bool {
+	if o == nil || len(o.pool) < 2 {
+		return false
+	}
+	scheduler := normalizeMergeScheduler(o.cfg.MergeScheduler)
+	switch scheduler {
+	case "stagnation_due":
+		if o.mergesDue > 0 {
+			o.mergesDue--
+			return true
+		}
+		if o.cfg.MergeProbability > 0 && o.rng.Float64() < o.cfg.MergeProbability {
+			return true
+		}
+		return false
+	default:
+		return o.cfg.MergeProbability > 0 && o.rng.Float64() < o.cfg.MergeProbability
+	}
+}
+
+func (o *Optimizer) updateMergeDue(accepted bool) {
+	if o == nil {
+		return
+	}
+	if normalizeMergeScheduler(o.cfg.MergeScheduler) != "stagnation_due" {
+		return
+	}
+	if accepted {
+		o.mergesDue = 0
+		return
+	}
+	if o.mergesDue < o.cfg.MaxMergesDue {
+		o.mergesDue++
+	}
+}
+
+func normalizeMergeScheduler(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "stagnation_due", "probabilistic":
+		return s
+	default:
+		return "probabilistic"
+	}
+}
+
+func (o *Optimizer) emitOutcomeEvents(
+	operation string,
+	parent *candidateNode,
+	parent2 *candidateNode,
+	child *candidateNode,
+	updatedKeys []string,
+	parentStats CandidateStats,
+	parent2Stats CandidateStats,
+	baselineStats CandidateStats,
+	childStats CandidateStats,
+	accepted bool,
+) {
+	if o == nil || o.eventHook == nil || parent == nil || child == nil {
+		return
+	}
+
+	attemptedType := OptimizerEventMutateAttempted
+	acceptedType := OptimizerEventMutateAccepted
+	rejectedType := OptimizerEventMutateRejected
+	if operation == "merge" {
+		attemptedType = OptimizerEventMergeAttempted
+		acceptedType = OptimizerEventMergeAccepted
+		rejectedType = OptimizerEventMergeRejected
+	}
+
+	parent2ID := -1
+	var parent2Score *float64
+	if parent2 != nil {
+		parent2ID = int(parent2.ID)
+		s := parent2Stats.MeanScore
+		parent2Score = &s
+	}
+
+	evBase := OptimizerEvent{
+		Iteration:     o.iteration,
+		Operation:     operation,
+		ParentID:      int(parent.ID),
+		Parent2ID:     parent2ID,
+		ChildID:       int(child.ID),
+		UpdatedKeys:   append([]string(nil), updatedKeys...),
+		ParentScore:   parentStats.MeanScore,
+		Parent2Score:  parent2Score,
+		BaselineScore: baselineStats.MeanScore,
+		ChildScore:    childStats.MeanScore,
+		Accepted:      accepted,
+		CallsUsed:     o.callsUsed,
+	}
+
+	ev := evBase
+	ev.Type = attemptedType
+	o.emitEvent(ev)
+
+	ev = evBase
+	if accepted {
+		ev.Type = acceptedType
+	} else {
+		ev.Type = rejectedType
+	}
+	o.emitEvent(ev)
+}
+
+func (o *Optimizer) emitEvent(event OptimizerEvent) {
+	if o == nil || o.eventHook == nil {
+		return
+	}
+	o.eventHook(event)
 }
 
 func (o *Optimizer) selectParent() *candidateNode {
@@ -507,6 +728,105 @@ func (o *Optimizer) selectParentDistinct(exclude CandidateID) *candidateNode {
 		idx--
 	}
 	return nil
+}
+
+func (o *Optimizer) selectComponentsForIteration(ctx context.Context, parent, parent2 *candidateNode, useMerge bool) ([]string, error) {
+	if o == nil || parent == nil {
+		return nil, nil
+	}
+	operation := "mutate"
+	if useMerge {
+		operation = "merge"
+	}
+
+	available := make([]string, 0, len(o.paramKeys))
+	for _, k := range o.paramKeys {
+		if _, ok := parent.Candidate[k]; ok {
+			available = append(available, k)
+		}
+	}
+	if len(available) == 0 {
+		for k := range parent.Candidate {
+			available = append(available, k)
+		}
+		sort.Strings(available)
+	}
+
+	if o.componentSelectorFn != nil {
+		parent2ID := CandidateID(-1)
+		if parent2 != nil {
+			parent2ID = parent2.ID
+		}
+		selected, err := o.componentSelectorFn(ctx, ComponentSelectionInput{
+			Operation:      operation,
+			ParentID:       parent.ID,
+			Parent2ID:      parent2ID,
+			Candidate:      cloneCandidate(parent.Candidate),
+			AvailableKeys:  append([]string(nil), available...),
+			NextParamIndex: parent.NextParamIndex,
+		})
+		if err != nil {
+			return nil, err
+		}
+		selected = normalizeSelectedComponents(selected, available)
+		if len(selected) > 0 {
+			return selected, nil
+		}
+	}
+
+	return o.selectComponents(parent), nil
+}
+
+func normalizeSelectedComponents(selected []string, available []string) []string {
+	if len(selected) == 0 || len(available) == 0 {
+		return nil
+	}
+	allowed := map[string]struct{}{}
+	for _, k := range available {
+		allowed[k] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(selected))
+	for _, raw := range selected {
+		k := strings.TrimSpace(raw)
+		if k == "" {
+			continue
+		}
+		if _, ok := allowed[k]; !ok {
+			continue
+		}
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+	return out
+}
+
+func (o *Optimizer) buildSideInfo(ctx context.Context, operation, paramKey string, examples []any, evals []ExampleEval) (string, error) {
+	if o == nil {
+		return FormatSideInfoForKey(examples, evals, paramKey, 0), nil
+	}
+	defaultSideInfo := FormatSideInfoForKey(examples, evals, paramKey, o.cfg.MaxSideInfoChars)
+	if o.sideInfoFn == nil {
+		return defaultSideInfo, nil
+	}
+	s, err := o.sideInfoFn(ctx, SideInfoInput{
+		Operation: operation,
+		ParamKey:  paramKey,
+		Examples:  examples,
+		Evals:     evals,
+		MaxChars:  o.cfg.MaxSideInfoChars,
+		Default:   defaultSideInfo,
+	})
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(s) == "" {
+		return defaultSideInfo, nil
+	}
+	return s, nil
 }
 
 func (o *Optimizer) proposeMerge(ctx context.Context, in MergeInput) (string, string, error) {

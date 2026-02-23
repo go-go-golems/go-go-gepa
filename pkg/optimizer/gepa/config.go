@@ -39,6 +39,19 @@ type Config struct {
 	// "<side_info_a>", and "<side_info_b>" placeholders.
 	MergePromptTemplate string
 
+	// MergeScheduler controls when merge should be attempted.
+	//
+	// Supported values:
+	//  - "probabilistic" (default): use MergeProbability each iteration.
+	//  - "stagnation_due": maintain a merges_due counter that increases when no child is accepted,
+	//    and spend due merge attempts when possible.
+	//
+	// Any other value falls back to "probabilistic".
+	MergeScheduler string
+
+	// MaxMergesDue caps the internal merges_due counter used by MergeScheduler=stagnation_due.
+	MaxMergesDue int
+
 	// OptimizableKeys optionally restricts which candidate keys are eligible for mutation/merge.
 	//
 	// If empty, the optimizer defaults to using the keys present in the seed candidate.
@@ -99,6 +112,12 @@ func (c Config) withDefaults() Config {
 	}
 	if out.MergePromptTemplate == "" {
 		out.MergePromptTemplate = DefaultMergePromptTemplate
+	}
+	if out.MergeScheduler == "" {
+		out.MergeScheduler = "probabilistic"
+	}
+	if out.MaxMergesDue <= 0 {
+		out.MaxMergesDue = 2
 	}
 	if out.ComponentSelector == "" {
 		out.ComponentSelector = "round_robin"

@@ -56,6 +56,12 @@ module.exports = plugins.defineOptimizerPlugin({
       return dataset;
     }
 
+    function initialCandidate() {
+      return {
+        prompt: "Answer the question. Respond with only the final answer.",
+      };
+    }
+
     function evaluate(input, options) {
       const inObj = (input && typeof input === "object") ? input : {};
       const candidate = (inObj.candidate && typeof inObj.candidate === "object") ? inObj.candidate : {};
@@ -93,6 +99,27 @@ module.exports = plugins.defineOptimizerPlugin({
         output: { text: got },
         feedback: ok ? "Correct." : `Expected "${expected}" but got "${got}".`,
       };
+    }
+
+    // Optional: plugin-side component selection hook.
+    // For this toy single-param plugin, always optimize "prompt" when available.
+    function selectComponents(input, options) {
+      const inObj = (input && typeof input === "object") ? input : {};
+      const available = Array.isArray(inObj.availableKeys) ? inObj.availableKeys : [];
+      if (available.includes("prompt")) {
+        return ["prompt"];
+      }
+      return available.slice(0, 1);
+    }
+
+    // Optional: plugin-side side-info shaping hook.
+    function componentSideInfo(input, options) {
+      const inObj = (input && typeof input === "object") ? input : {};
+      const fallback = (typeof inObj.default === "string") ? inObj.default : "";
+      const paramKey = (typeof inObj.paramKey === "string" && inObj.paramKey.trim())
+        ? inObj.paramKey.trim()
+        : "prompt";
+      return `Component: ${paramKey}\n\n${fallback}`;
     }
 
     // Optional: custom prompt merge (crossover).
@@ -162,7 +189,10 @@ module.exports = plugins.defineOptimizerPlugin({
 
     return {
       dataset: datasetFn,
+      initialCandidate,
       evaluate,
+      selectComponents,
+      componentSideInfo,
       merge,
     };
   },

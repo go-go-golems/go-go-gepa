@@ -2,6 +2,7 @@ package gepa
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 
 	"github.com/go-go-golems/geppetto/pkg/turns"
@@ -203,6 +204,159 @@ func TestMergeChildMustBeatBestParent(t *testing.T) {
 func hasCandidatePrompt(cands []CandidateEntry, prompt string) bool {
 	for _, c := range cands {
 		if c.Candidate["prompt"] == prompt {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStagnationDueSchedulerStateMachine(t *testing.T) {
+	opt := &Optimizer{
+		cfg: Config{
+			MergeScheduler:   "stagnation_due",
+			MergeProbability: 0,
+			MaxMergesDue:     2,
+		},
+		rng: rand.New(rand.NewSource(1)),
+		pool: []*candidateNode{
+			{ID: 0},
+			{ID: 1},
+		},
+	}
+
+	if opt.shouldAttemptMerge() {
+		t.Fatalf("expected no merge when merges_due=0 and merge_prob=0")
+	}
+
+	opt.updateMergeDue(false)
+	if !opt.shouldAttemptMerge() {
+		t.Fatalf("expected merge attempt when merges_due becomes positive")
+	}
+
+	// merges_due was spent by shouldAttemptMerge, so next attempt should be false again.
+	if opt.shouldAttemptMerge() {
+		t.Fatalf("expected no immediate second merge attempt after spending due counter")
+	}
+
+	opt.updateMergeDue(false)
+	opt.updateMergeDue(false)
+	if opt.mergesDue != 2 {
+		t.Fatalf("expected merges_due capped at 2, got %d", opt.mergesDue)
+	}
+
+	opt.updateMergeDue(true)
+	if opt.mergesDue != 0 {
+		t.Fatalf("expected merges_due reset on accepted child, got %d", opt.mergesDue)
+	}
+}
+
+func TestEventHookIncludesMergeAttemptAndRejection(t *testing.T) {
+	examples := []any{map[string]any{"x": 1}}
+
+	evalFn := func(_ context.Context, c Candidate, _ int, _ any) (EvalResult, error) {
+		switch c["prompt"] {
+		case "p0":
+			return EvalResult{Score: 0.50}, nil
+		case "p1":
+			return EvalResult{Score: 1.00}, nil
+		case "p06":
+			return EvalResult{Score: 0.60}, nil
+		default:
+			return EvalResult{Score: 0.10}, nil
+		}
+	}
+
+	reflector := &Reflector{Engine: &constantEngine{text: "```p1```"}}
+	cfg := Config{
+		MaxEvalCalls:     12,
+		BatchSize:        1,
+		RandomSeed:       2,
+		MergeProbability: 1.0,
+	}
+	opt := NewOptimizer(cfg, evalFn, reflector)
+	opt.SetMergeFunc(func(_ context.Context, _ MergeInput) (string, string, error) {
+		return "p06", "merge", nil
+	})
+
+	var events []OptimizerEventType
+	opt.SetEventHook(func(event OptimizerEvent) {
+		events = append(events, event.Type)
+	})
+
+	_, err := opt.Optimize(context.Background(), Candidate{"prompt": "p0"}, examples)
+	if err != nil {
+		t.Fatalf("Optimize returned error: %v", err)
+	}
+
+	if !containsEventType(events, OptimizerEventMergeAttempted) {
+		t.Fatalf("expected merge_attempted event, got %v", events)
+	}
+	if !containsEventType(events, OptimizerEventMergeRejected) {
+		t.Fatalf("expected merge_rejected event, got %v", events)
+	}
+	if !containsEventType(events, OptimizerEventMutateAccepted) {
+		t.Fatalf("expected mutate_accepted event, got %v", events)
+	}
+}
+
+func TestComponentAndSideInfoHooksCanOverrideDefaults(t *testing.T) {
+	examples := []any{map[string]any{"x": 1}}
+
+	evalFn := func(_ context.Context, c Candidate, _ int, _ any) (EvalResult, error) {
+		if c["instruction"] == "new-instruction" {
+			return EvalResult{Score: 1.0}, nil
+		}
+		return EvalResult{Score: 0.0}, nil
+	}
+
+	reflector := &Reflector{
+		Engine: &constantEngine{text: "```new-instruction```"},
+	}
+	cfg := Config{
+		MaxEvalCalls:    6,
+		BatchSize:       1,
+		RandomSeed:      3,
+		OptimizableKeys: []string{"prompt", "instruction"},
+	}
+	opt := NewOptimizer(cfg, evalFn, reflector)
+
+	opt.SetComponentSelectorFunc(func(_ context.Context, in ComponentSelectionInput) ([]string, error) {
+		return []string{"instruction"}, nil
+	})
+
+	sideInfoCalled := false
+	opt.SetSideInfoFunc(func(_ context.Context, in SideInfoInput) (string, error) {
+		if in.ParamKey == "instruction" {
+			sideInfoCalled = true
+			return "CUSTOM SIDE INFO", nil
+		}
+		return "", nil
+	})
+
+	res, err := opt.Optimize(context.Background(), Candidate{
+		"prompt":      "seed-prompt",
+		"instruction": "seed-instruction",
+	}, examples)
+	if err != nil {
+		t.Fatalf("Optimize returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("expected non-nil result")
+	}
+	if !sideInfoCalled {
+		t.Fatalf("expected side-info hook to be called")
+	}
+	if res.BestCandidate["instruction"] != "new-instruction" {
+		t.Fatalf("expected instruction to be updated via hook-selected component, got %q", res.BestCandidate["instruction"])
+	}
+	if res.BestCandidate["prompt"] != "seed-prompt" {
+		t.Fatalf("expected prompt to remain unchanged, got %q", res.BestCandidate["prompt"])
+	}
+}
+
+func containsEventType(events []OptimizerEventType, want OptimizerEventType) bool {
+	for _, got := range events {
+		if got == want {
 			return true
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -32,9 +33,12 @@ type optimizerPlugin struct {
 	meta     optimizerPluginMeta
 	instance *goja.Object
 
-	evaluateFn goja.Callable
-	datasetFn  goja.Callable
-	mergeFn    goja.Callable
+	evaluateFn          goja.Callable
+	datasetFn           goja.Callable
+	mergeFn             goja.Callable
+	initialCandidateFn  goja.Callable
+	selectComponentsFn  goja.Callable
+	componentSideInfoFn goja.Callable
 }
 
 func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
@@ -79,46 +83,46 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must return an object instance")
 	}
 
-	evaluateVal := instanceObj.Get("evaluate")
-	evaluateFn, ok := goja.AssertFunction(evaluateVal)
+	evaluateFn, ok := goja.AssertFunction(instanceObj.Get("evaluate"))
 	if !ok {
 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
 	}
 
-	var mergeFn goja.Callable
-	for _, key := range []string{"merge", "mergeCandidate", "mergePrompt"} {
-		if mv := instanceObj.Get(key); mv != nil && !goja.IsUndefined(mv) && !goja.IsNull(mv) {
-			if fn, ok := goja.AssertFunction(mv); ok {
-				mergeFn = fn
-				break
-			}
-		}
-	}
-
-	var datasetFn goja.Callable
-	if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
-		if fn, ok := goja.AssertFunction(dv); ok {
-			datasetFn = fn
-		}
-	}
-	if datasetFn == nil {
-		if dv := instanceObj.Get("getDataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
-			if fn, ok := goja.AssertFunction(dv); ok {
-				datasetFn = fn
-			}
-		}
-	}
+	mergeFn := findOptionalCallable(instanceObj, "merge", "mergeCandidate", "mergePrompt")
+	datasetFn := findOptionalCallable(instanceObj, "dataset", "getDataset")
+	initialCandidateFn := findOptionalCallable(instanceObj, "initialCandidate", "getInitialCandidate")
+	selectComponentsFn := findOptionalCallable(instanceObj, "selectComponents", "chooseComponents")
+	componentSideInfoFn := findOptionalCallable(instanceObj, "componentSideInfo", "sideInfoForComponent", "buildSideInfo")
 
 	p := &optimizerPlugin{
-		rt:         rt,
-		meta:       meta,
-		instance:   instanceObj,
-		evaluateFn: evaluateFn,
-		datasetFn:  datasetFn,
-		mergeFn:    mergeFn,
+		rt:                  rt,
+		meta:                meta,
+		instance:            instanceObj,
+		evaluateFn:          evaluateFn,
+		datasetFn:           datasetFn,
+		mergeFn:             mergeFn,
+		initialCandidateFn:  initialCandidateFn,
+		selectComponentsFn:  selectComponentsFn,
+		componentSideInfoFn: componentSideInfoFn,
 	}
 
 	return p, meta, nil
+}
+
+func findOptionalCallable(obj *goja.Object, keys ...string) goja.Callable {
+	if obj == nil {
+		return nil
+	}
+	for _, key := range keys {
+		v := obj.Get(key)
+		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+			continue
+		}
+		if fn, ok := goja.AssertFunction(v); ok {
+			return fn
+		}
+	}
+	return nil
 }
 
 func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
@@ -182,12 +186,7 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 	return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
 }
 
-func (p *optimizerPlugin) Evaluate(
-	candidate gepaopt.Candidate,
-	exampleIndex int,
-	example any,
-	opts pluginEvaluateOptions,
-) (gepaopt.EvalResult, error) {
+func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int, example any, opts pluginEvaluateOptions) (gepaopt.EvalResult, error) {
 	if p == nil || p.rt == nil || p.instance == nil || p.evaluateFn == nil {
 		return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
 	}
@@ -270,6 +269,102 @@ func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOption
 	}
 
 	return merged, raw, nil
+}
+
+func (p *optimizerPlugin) HasInitialCandidate() bool {
+	return p != nil && p.initialCandidateFn != nil
+}
+
+func (p *optimizerPlugin) InitialCandidate(opts pluginEvaluateOptions) (gepaopt.Candidate, error) {
+	if p == nil || p.rt == nil || p.instance == nil || p.initialCandidateFn == nil {
+		return nil, fmt.Errorf("plugin initialCandidate: initialCandidate() not available")
+	}
+	options := map[string]any{
+		"profile":       strings.TrimSpace(opts.Profile),
+		"engineOptions": opts.EngineOptions,
+		"tags":          opts.Tags,
+	}
+	ret, err := p.initialCandidateFn(p.instance, p.rt.vm.ToValue(options))
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin initialCandidate: call failed")
+	}
+	decoded, err := decodeJSReturnValue(ret)
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin initialCandidate: invalid return value")
+	}
+	return decodeCandidate(decoded)
+}
+
+func (p *optimizerPlugin) HasSelectComponents() bool {
+	return p != nil && p.selectComponentsFn != nil
+}
+
+func (p *optimizerPlugin) SelectComponents(in gepaopt.ComponentSelectionInput, opts pluginEvaluateOptions) ([]string, error) {
+	if p == nil || p.rt == nil || p.instance == nil || p.selectComponentsFn == nil {
+		return nil, fmt.Errorf("plugin selectComponents: selectComponents() not available")
+	}
+
+	input := map[string]any{
+		"operation":      in.Operation,
+		"parentId":       int(in.ParentID),
+		"parent2Id":      int(in.Parent2ID),
+		"candidate":      in.Candidate,
+		"availableKeys":  in.AvailableKeys,
+		"nextParamIndex": in.NextParamIndex,
+	}
+	options := map[string]any{
+		"profile":       strings.TrimSpace(opts.Profile),
+		"engineOptions": opts.EngineOptions,
+		"tags":          opts.Tags,
+	}
+
+	ret, err := p.selectComponentsFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin selectComponents: call failed")
+	}
+	decoded, err := decodeJSReturnValue(ret)
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin selectComponents: invalid return value")
+	}
+	components, err := decodeStringList(decoded)
+	if err != nil {
+		return nil, err
+	}
+	return components, nil
+}
+
+func (p *optimizerPlugin) HasComponentSideInfo() bool {
+	return p != nil && p.componentSideInfoFn != nil
+}
+
+func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts pluginEvaluateOptions) (string, error) {
+	if p == nil || p.rt == nil || p.instance == nil || p.componentSideInfoFn == nil {
+		return "", fmt.Errorf("plugin componentSideInfo: componentSideInfo() not available")
+	}
+
+	input := map[string]any{
+		"operation": in.Operation,
+		"paramKey":  in.ParamKey,
+		"examples":  in.Examples,
+		"evals":     in.Evals,
+		"maxChars":  in.MaxChars,
+		"default":   in.Default,
+	}
+	options := map[string]any{
+		"profile":       strings.TrimSpace(opts.Profile),
+		"engineOptions": opts.EngineOptions,
+		"tags":          opts.Tags,
+	}
+
+	ret, err := p.componentSideInfoFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if err != nil {
+		return "", errors.Wrap(err, "plugin componentSideInfo: call failed")
+	}
+	decoded, err := decodeJSReturnValue(ret)
+	if err != nil {
+		return "", errors.Wrap(err, "plugin componentSideInfo: invalid return value")
+	}
+	return decodeSideInfoOutput(decoded)
 }
 
 // decodeJSReturnValue mirrors the cozo runner behavior:
@@ -355,6 +450,124 @@ func decodeMergeOutput(v any, paramKey string) (string, error) {
 		return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
 	default:
 		return "", fmt.Errorf("merge must return a string or object, got %T", v)
+	}
+}
+
+func decodeCandidate(v any) (gepaopt.Candidate, error) {
+	switch x := v.(type) {
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return nil, fmt.Errorf("initial candidate string is empty")
+		}
+		return gepaopt.Candidate{"prompt": s}, nil
+	case map[string]any:
+		out := gepaopt.Candidate{}
+		for k, vv := range x {
+			key := strings.TrimSpace(k)
+			if key == "" {
+				continue
+			}
+			out[key] = toStringLossy(vv)
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("initial candidate map is empty")
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("initial candidate must be string or object, got %T", v)
+	}
+}
+
+func decodeStringList(v any) ([]string, error) {
+	switch x := v.(type) {
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return nil, nil
+		}
+		return []string{s}, nil
+	case []string:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			if s := strings.TrimSpace(item); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			s := strings.TrimSpace(toStringLossy(item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("component list must be string or array, got %T", v)
+	}
+}
+
+func decodeSideInfoOutput(v any) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case map[string]any:
+		for _, key := range []string{"sideInfo", "text", "value", "default"} {
+			if vv, ok := x[key]; ok {
+				return toStringLossy(vv), nil
+			}
+		}
+		return "", nil
+	default:
+		return toStringLossy(v), nil
+	}
+}
+
+func toStringLossy(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case string:
+		return x
+	case json.Number:
+		return x.String()
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(x), 'f', -1, 32)
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case int32:
+		return strconv.FormatInt(int64(x), 10)
+	case int16:
+		return strconv.FormatInt(int64(x), 10)
+	case int8:
+		return strconv.FormatInt(int64(x), 10)
+	case uint:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	case uint32:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(x), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(x), 10)
+	default:
+		if blob, err := json.Marshal(x); err == nil {
+			return string(blob)
+		}
+		return fmt.Sprintf("%v", x)
 	}
 }
 
