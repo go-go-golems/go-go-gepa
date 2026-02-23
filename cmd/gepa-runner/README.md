@@ -35,6 +35,28 @@ gepa-runner optimize \
   --seed-file ./seed_prompt.txt
 ```
 
+## Included example scripts
+
+Under `cmd/gepa-runner/scripts/`:
+
+- `toy_math_optimizer.js`
+  - baseline arithmetic optimizer, now using shared helper library
+- `multi_param_math_optimizer.js`
+  - multi-parameter candidate (`prompt`, `planner_prompt`, `critic_prompt`)
+  - plugin-side component selection and per-component side-info shaping
+- `seedless_heuristic_merge_optimizer.js`
+  - seedless initialization via `initialCandidate()`
+  - non-LLM heuristic merge callback
+- `optimize_anything_style_optimizer.js`
+  - component-metadata adapter style inspired by optimize-anything patterns
+  - multi-objective scoring + component-aware hooks
+- `smoke_noop_optimizer.js`
+  - minimal smoke plugin
+
+Shared JS utilities are in:
+
+- `cmd/gepa-runner/scripts/lib/gepa_optimizer_common.js`
+
 ## Optimize flags (important)
 
 Core:

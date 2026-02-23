@@ -4,26 +4,25 @@ const common = require("./lib/gepa_optimizer_common");
 module.exports = plugins.defineOptimizerPlugin({
   apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,
   kind: "optimizer",
-  id: "example.toy_math",
-  name: "Example: Toy math accuracy",
+  id: "example.seedless_heuristic_merge",
+  name: "Example: Seedless with heuristic merge",
 
   create(ctx) {
     const dataset = [
-      { question: "2+2", answer: "4" },
-      { question: "10-3", answer: "7" },
-      { question: "6*7", answer: "42" },
-      { question: "12/4", answer: "3" },
-      { question: "9+8", answer: "17" },
-      { question: "100-25", answer: "75" },
+      { question: "3+4", answer: "7" },
+      { question: "18-6", answer: "12" },
+      { question: "11*2", answer: "22" },
+      { question: "24/6", answer: "4" },
     ];
 
     function datasetFn() {
       return dataset;
     }
 
+    // Designed for --seedless mode.
     function initialCandidate() {
       return {
-        prompt: "Answer the question. Respond with only the final answer.",
+        prompt: "Solve the arithmetic question and return only the final answer.",
       };
     }
 
@@ -32,18 +31,18 @@ module.exports = plugins.defineOptimizerPlugin({
       const candidate = (inObj.candidate && typeof inObj.candidate === "object") ? inObj.candidate : {};
       const example = (inObj.example && typeof inObj.example === "object") ? inObj.example : {};
 
-      const instruction = common.getCandidateText(
-        candidate,
-        "prompt",
-        "Answer the question. Respond with only the final answer.",
-      );
+      const instruction = common.getCandidateText(candidate, "prompt", "Return only the final answer.");
+      const prompt = `${instruction}\n\nQuestion: ${String(example.question || "")}\nAnswer:`;
 
-      const prompt = `${instruction}\n\nQuestion: ${String(example.question || "")}\nFinal answer:`;
       const got = common.runUserPrompt(ctx, options, prompt);
       const scored = common.exactMatchScore(example.answer, got);
 
       return {
         score: scored.score,
+        objectiveScores: {
+          accuracy: scored.score,
+          prompt_cost: -instruction.length,
+        },
         output: { text: scored.got },
         feedback: scored.feedback,
       };
@@ -58,15 +57,23 @@ module.exports = plugins.defineOptimizerPlugin({
       return available.slice(0, 1);
     }
 
-    function componentSideInfo(input) {
+    // Merge strategy without additional model calls.
+    function merge(input) {
       const inObj = (input && typeof input === "object") ? input : {};
-      const paramKey = common.toTrimmedString(inObj.paramKey) || "prompt";
-      const fallback = (typeof inObj.default === "string") ? inObj.default : "";
-      return `Component: ${paramKey}\n\n${fallback}`;
-    }
+      const a = common.toTrimmedString(inObj.paramA);
+      const b = common.toTrimmedString(inObj.paramB);
 
-    function merge(input, options) {
-      return common.mergeWithLLM(ctx, options, input);
+      let merged = a.length >= b.length ? a : b;
+      const mustHave = [
+        "Return only the final answer.",
+        "Do not include explanations.",
+      ];
+      mustHave.forEach((rule) => {
+        if (!merged.toLowerCase().includes(rule.toLowerCase())) {
+          merged = `${merged} ${rule}`.trim();
+        }
+      });
+      return merged;
     }
 
     return {
@@ -74,7 +81,6 @@ module.exports = plugins.defineOptimizerPlugin({
       initialCandidate,
       evaluate,
       selectComponents,
-      componentSideInfo,
       merge,
     };
   },
