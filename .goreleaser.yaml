@@ -1,5 +1,5 @@
 version: 2
-project_name: XXX
+project_name: go-go-gepa
 
 before:
   hooks:
@@ -8,17 +8,11 @@ before:
     # you may remove this if you don't need go generate
     - go generate ./...
 builds:
-  - id: XXX-linux
+  - id: gepa-runner-linux
     env:
-      - CGO_ENABLED=1
-      - CC_linux_amd64=gcc
-      - CXX_linux_amd64=g++
-      - CC_linux_arm64=aarch64-linux-gnu-gcc
-      - CXX_linux_arm64=aarch64-linux-gnu-g++
-      - 'CC={{ index .Env (print "CC_" .Os "_" .Arch) }}'
-      - 'CXX={{ index .Env (print "CXX_" .Os "_" .Arch) }}'
-    main: ./cmd/XXX
-    binary: XXX
+      - CGO_ENABLED=0
+    main: ./cmd/gepa-runner
+    binary: gepa-runner
     goos:
       - linux
 # I am not able to test windows at the time
@@ -26,11 +20,11 @@ builds:
     goarch:
       - amd64
       - arm64
-  - id: XXX-darwin
+  - id: gepa-runner-darwin
     env:
-      - CGO_ENABLED=1
-    main: ./cmd/XXX
-    binary: XXX
+      - CGO_ENABLED=0
+    main: ./cmd/gepa-runner
+    binary: gepa-runner
     goos:
       - darwin
     goarch:
@@ -53,9 +47,9 @@ signs:
     args: [ "--batch", "-u", "{{ .Env.GPG_FINGERPRINT }}", "--output", "${signature}", "--detach-sign", "${artifact}" ]
 
 brews:
-  - name: XXX
-    description: "XXX is a tool"
-    homepage: "https://github.com/go-go-golems/XXX"
+  - name: gepa-runner
+    description: "GEPA-style prompt optimization and benchmarking runner built on Geppetto"
+    homepage: "https://github.com/go-go-golems/go-go-gepa"
     repository:
       owner: go-go-golems
       name: homebrew-go-go-go
@@ -66,11 +60,11 @@ nfpms:
     id: packages
 
     vendor: GO GO GOLEMS
-    homepage: https://github.com/go-go-golems/
+    homepage: https://github.com/go-go-golems/go-go-gepa
     maintainer: Manuel Odendahl <wesen@ruinwesen.com>
 
     description: |-
-      XXX is a tool
+      gepa-runner is a tool
 
     license: MIT
 
