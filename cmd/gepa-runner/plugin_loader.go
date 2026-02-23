@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -33,6 +34,7 @@ type optimizerPlugin struct {
 
 	evaluateFn goja.Callable
 	datasetFn  goja.Callable
+	mergeFn    goja.Callable
 }
 
 func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
@@ -43,10 +45,7 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		return nil, optimizerPluginMeta{}, errors.New("plugin loader: script path is empty")
 	}
 
-	// NOTE: require expects absolute path for local files when we use abs path.
-	var exported goja.Value
-	var err error
-	exported, err = rt.reqMod.Require(absScriptPath)
+	exported, err := rt.reqMod.Require(absScriptPath)
 	if err != nil {
 		return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
 	}
@@ -86,7 +85,16 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
 	}
 
-	// dataset() is optional if dataset file is provided, but we’ll attempt to bind it here.
+	var mergeFn goja.Callable
+	for _, key := range []string{"merge", "mergeCandidate", "mergePrompt"} {
+		if mv := instanceObj.Get(key); mv != nil && !goja.IsUndefined(mv) && !goja.IsNull(mv) {
+			if fn, ok := goja.AssertFunction(mv); ok {
+				mergeFn = fn
+				break
+			}
+		}
+	}
+
 	var datasetFn goja.Callable
 	if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
 		if fn, ok := goja.AssertFunction(dv); ok {
@@ -107,13 +115,13 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		instance:   instanceObj,
 		evaluateFn: evaluateFn,
 		datasetFn:  datasetFn,
+		mergeFn:    mergeFn,
 	}
 
 	return p, meta, nil
 }
 
 func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
-
 	apiVersion := strings.TrimSpace(descriptorObj.Get("apiVersion").String())
 	kind := strings.TrimSpace(descriptorObj.Get("kind").String())
 	id := strings.TrimSpace(descriptorObj.Get("id").String())
@@ -135,7 +143,6 @@ func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta,
 		return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.name is required")
 	}
 
-	// Sanity: ensure descriptor.create exists.
 	if cv := descriptorObj.Get("create"); cv == nil || goja.IsUndefined(cv) || goja.IsNull(cv) {
 		return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create is required")
 	}
@@ -171,12 +178,6 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 	arr, ok := decoded.([]any)
 	if ok {
 		return arr, nil
-	}
-	// handle []interface{} from json.Unmarshal etc.
-	if arr2, ok := decoded.([]interface{}); ok {
-		out := make([]any, 0, len(arr2))
-		out = append(out, arr2...)
-		return out, nil
 	}
 	return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
 }
@@ -220,6 +221,57 @@ func (p *optimizerPlugin) Evaluate(
 	return er, nil
 }
 
+func (p *optimizerPlugin) HasMerge() bool {
+	return p != nil && p.mergeFn != nil
+}
+
+func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOptions) (string, string, error) {
+	if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
+		return "", "", fmt.Errorf("plugin merge: merge() not available")
+	}
+
+	input := map[string]any{
+		"candidateA": in.ParentA,
+		"candidateB": in.ParentB,
+		"paramKey":   in.ParamKey,
+		"paramA":     in.ParamA,
+		"paramB":     in.ParamB,
+		"sideInfoA":  in.SideInfoA,
+		"sideInfoB":  in.SideInfoB,
+	}
+	options := map[string]any{
+		"profile":       strings.TrimSpace(opts.Profile),
+		"engineOptions": opts.EngineOptions,
+		"tags":          opts.Tags,
+	}
+
+	ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if err != nil {
+		return "", "", errors.Wrap(err, "plugin merge: call failed")
+	}
+
+	decoded, err := decodeJSReturnValue(ret)
+	if err != nil {
+		return "", "", errors.Wrap(err, "plugin merge: invalid return value")
+	}
+
+	merged, err := decodeMergeOutput(decoded, in.ParamKey)
+	if err != nil {
+		return "", "", err
+	}
+
+	raw := ""
+	switch x := decoded.(type) {
+	case string:
+		raw = x
+	default:
+		blob, _ := json.MarshalIndent(decoded, "", "  ")
+		raw = string(blob)
+	}
+
+	return merged, raw, nil
+}
+
 // decodeJSReturnValue mirrors the cozo runner behavior:
 // - if JS returns a string, attempt JSON parsing
 // - if JS returns bytes, attempt JSON parsing
@@ -261,10 +313,63 @@ func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
 	}
 }
 
+func decodeMergeOutput(v any, paramKey string) (string, error) {
+	paramKey = strings.TrimSpace(paramKey)
+	if paramKey == "" {
+		paramKey = "prompt"
+	}
+
+	readString := func(m map[string]any, key string) string {
+		vv, ok := m[key]
+		if !ok || vv == nil {
+			return ""
+		}
+		s, ok := vv.(string)
+		if !ok {
+			return ""
+		}
+		return strings.TrimSpace(s)
+	}
+
+	switch x := v.(type) {
+	case string:
+		out := strings.TrimSpace(x)
+		if out == "" {
+			return "", fmt.Errorf("merge returned empty string")
+		}
+		return out, nil
+	case map[string]any:
+		if candRaw, ok := x["candidate"]; ok && candRaw != nil {
+			if cm, ok := candRaw.(map[string]any); ok {
+				if s := readString(cm, paramKey); s != "" {
+					return s, nil
+				}
+			}
+		}
+
+		for _, key := range []string{paramKey, "prompt", "merged", "mergedPrompt", "text"} {
+			if s := readString(x, key); s != "" {
+				return s, nil
+			}
+		}
+		return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
+	default:
+		return "", fmt.Errorf("merge must return a string or object, got %T", v)
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
 	scoreRaw, ok := m["score"]
 	if !ok {
-		// allow "value" fallback
 		scoreRaw, ok = m["value"]
 	}
 	if !ok {
@@ -335,7 +440,7 @@ func toFloat(v any) (float64, error) {
 		if strings.TrimSpace(x) == "" {
 			return 0, fmt.Errorf("empty string")
 		}
-		num := json.Number(strings.TrimSpace(x))
+		var num json.Number = json.Number(strings.TrimSpace(x))
 		return num.Float64()
 	default:
 		return 0, fmt.Errorf("unsupported numeric type %T", v)

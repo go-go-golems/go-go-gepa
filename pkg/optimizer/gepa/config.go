@@ -25,6 +25,37 @@ type Config struct {
 	// ReflectionPromptTemplate must include "<curr_param>" and "<side_info>" placeholders.
 	ReflectionPromptTemplate string
 
+	// MergeProbability is the probability of attempting a merge (crossover) step
+	// instead of a standard reflective mutation.
+	//
+	// 0 disables merging (default).
+	MergeProbability float64
+
+	// MergeSystemPrompt is the system prompt used for the merge proposer LLM.
+	// If empty, the ReflectionSystemPrompt (or the reflector default) is used.
+	MergeSystemPrompt string
+
+	// MergePromptTemplate must include "<param_a>", "<param_b>",
+	// "<side_info_a>", and "<side_info_b>" placeholders.
+	MergePromptTemplate string
+
+	// OptimizableKeys optionally restricts which candidate keys are eligible for mutation/merge.
+	//
+	// If empty, the optimizer defaults to using the keys present in the seed candidate.
+	//
+	// This is the primary mechanism to support multi-parameter optimization (e.g., multiple
+	// module prompts in a larger system).
+	OptimizableKeys []string
+
+	// ComponentSelector controls how many and which keys are updated per iteration.
+	//
+	// Supported values:
+	//  - "round_robin" (default): update one key per iteration, cycling through OptimizableKeys.
+	//  - "all": update all OptimizableKeys every iteration.
+	//
+	// Any other value falls back to "round_robin".
+	ComponentSelector string
+
 	// Objective is an optional natural-language description of what we are optimizing for.
 	Objective string
 
@@ -59,6 +90,18 @@ func (c Config) withDefaults() Config {
 	}
 	if out.ReflectionPromptTemplate == "" {
 		out.ReflectionPromptTemplate = DefaultReflectionPromptTemplate
+	}
+	if out.MergeProbability < 0 {
+		out.MergeProbability = 0
+	}
+	if out.MergeSystemPrompt == "" {
+		out.MergeSystemPrompt = out.ReflectionSystemPrompt
+	}
+	if out.MergePromptTemplate == "" {
+		out.MergePromptTemplate = DefaultMergePromptTemplate
+	}
+	if out.ComponentSelector == "" {
+		out.ComponentSelector = "round_robin"
 	}
 	if out.Now == nil {
 		out.Now = time.Now

@@ -41,19 +41,23 @@ type OptimizeCommand struct {
 var _ cmds.WriterCommand = (*OptimizeCommand)(nil)
 
 type OptimizeSettings struct {
-	ScriptPath       string `glazed:"script"`
-	DatasetPath      string `glazed:"dataset"`
-	Seed             string `glazed:"seed"`
-	SeedFile         string `glazed:"seed-file"`
-	Objective        string `glazed:"objective"`
-	MaxEvalCalls     int    `glazed:"max-evals"`
-	BatchSize        int    `glazed:"batch-size"`
-	MaxSideInfoChars int    `glazed:"max-side-info-chars"`
-	OutPrompt        string `glazed:"out-prompt"`
-	OutReport        string `glazed:"out-report"`
-	Record           bool   `glazed:"record"`
-	RecordDB         string `glazed:"record-db"`
-	Debug            bool   `glazed:"debug"`
+	ScriptPath        string  `glazed:"script"`
+	DatasetPath       string  `glazed:"dataset"`
+	Seed              string  `glazed:"seed"`
+	SeedFile          string  `glazed:"seed-file"`
+	SeedCandidate     string  `glazed:"seed-candidate"`
+	Objective         string  `glazed:"objective"`
+	MaxEvalCalls      int     `glazed:"max-evals"`
+	BatchSize         int     `glazed:"batch-size"`
+	MergeProb         float64 `glazed:"merge-prob"`
+	MaxSideInfoChars  int     `glazed:"max-side-info-chars"`
+	OptimizableKeys   string  `glazed:"optimizable-keys"`
+	ComponentSelector string  `glazed:"component-selector"`
+	OutPrompt         string  `glazed:"out-prompt"`
+	OutReport         string  `glazed:"out-report"`
+	Record            bool    `glazed:"record"`
+	RecordDB          string  `glazed:"record-db"`
+	Debug             bool    `glazed:"debug"`
 }
 
 func NewOptimizeCommand() (*OptimizeCommand, error) {
@@ -70,10 +74,14 @@ func NewOptimizeCommand() (*OptimizeCommand, error) {
 			fields.New("dataset", fields.TypeString, fields.WithHelp("Path to dataset (.json or .jsonl). Optional if plugin provides dataset().")),
 			fields.New("seed", fields.TypeString, fields.WithHelp("Seed prompt text (overrides --seed-file)")),
 			fields.New("seed-file", fields.TypeString, fields.WithHelp("Path to seed prompt file")),
+			fields.New("seed-candidate", fields.TypeString, fields.WithHelp("Path to seed candidate file (JSON or YAML) containing a map of parameter names to strings. If set, overrides --seed/--seed-file and enables multi-parameter optimization.")),
 			fields.New("objective", fields.TypeString, fields.WithHelp("Natural-language optimization objective (used in reflection prompt)")),
 			fields.New("max-evals", fields.TypeInteger, fields.WithHelp("Max evaluator calls (each example eval counts as 1)"), fields.WithDefault(200)),
 			fields.New("batch-size", fields.TypeInteger, fields.WithHelp("Minibatch size per iteration"), fields.WithDefault(8)),
+			fields.New("merge-prob", fields.TypeFloat, fields.WithHelp("Probability of attempting a merge (crossover) step between two prompts (0 disables)"), fields.WithDefault(0.0)),
 			fields.New("max-side-info-chars", fields.TypeInteger, fields.WithHelp("Cap formatted side-info chars passed to reflection LLM (0 = uncapped)"), fields.WithDefault(8000)),
+			fields.New("optimizable-keys", fields.TypeString, fields.WithHelp("Comma-separated list of candidate keys to optimize (defaults to all keys in the seed candidate).")),
+			fields.New("component-selector", fields.TypeString, fields.WithHelp("Which parameter(s) to update per iteration: round_robin (default) or all."), fields.WithDefault("round_robin")),
 			fields.New("out-prompt", fields.TypeString, fields.WithHelp("Write best prompt to this file (optional)")),
 			fields.New("out-report", fields.TypeString, fields.WithHelp("Write JSON optimization report to this file (optional)")),
 			fields.New("record", fields.TypeBool, fields.WithHelp("Persist run/candidate/eval metrics to SQLite"), fields.WithDefault(false)),
@@ -107,12 +115,34 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 		return fmt.Errorf("--script is required")
 	}
 
-	seedText, err := resolveSeedText(s.Seed, s.SeedFile)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(seedText) == "" {
-		return fmt.Errorf("seed prompt is empty (use --seed or --seed-file)")
+	var seedCandidate gepaopt.Candidate
+	seedTextForRecord := ""
+	if strings.TrimSpace(s.SeedCandidate) != "" {
+		cand, err := loadSeedCandidateFile(s.SeedCandidate)
+		if err != nil {
+			return err
+		}
+		if len(cand) == 0 {
+			return fmt.Errorf("seed candidate is empty (check --seed-candidate)")
+		}
+		seedCandidate = cand
+		if p, ok := cand["prompt"]; ok {
+			seedTextForRecord = strings.TrimSpace(p)
+		}
+		if seedTextForRecord == "" {
+			blob, _ := json.Marshal(cand)
+			seedTextForRecord = string(blob)
+		}
+	} else {
+		seedText, err := resolveSeedText(s.Seed, s.SeedFile)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(seedText) == "" {
+			return fmt.Errorf("seed prompt is empty (use --seed, --seed-file, or --seed-candidate)")
+		}
+		seedCandidate = gepaopt.Candidate{"prompt": seedText}
+		seedTextForRecord = seedText
 	}
 
 	// Ensure JS-side engine creation resolves the same profile by default.
@@ -188,16 +218,39 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	cfg := gepaopt.Config{
 		MaxEvalCalls:     s.MaxEvalCalls,
 		BatchSize:        s.BatchSize,
+		MergeProbability: s.MergeProb,
 		Objective:        s.Objective,
 		MaxSideInfoChars: s.MaxSideInfoChars,
 	}
+	if strings.TrimSpace(s.OptimizableKeys) != "" {
+		parts := strings.Split(s.OptimizableKeys, ",")
+		for _, p := range parts {
+			k := strings.TrimSpace(p)
+			if k != "" {
+				cfg.OptimizableKeys = append(cfg.OptimizableKeys, k)
+			}
+		}
+	}
+	cfg.ComponentSelector = strings.TrimSpace(s.ComponentSelector)
 
 	reflector := &gepaopt.Reflector{
-		Engine:    engine,
-		Objective: cfg.Objective,
+		Engine:        engine,
+		Objective:     cfg.Objective,
+		System:        cfg.ReflectionSystemPrompt,
+		Template:      cfg.ReflectionPromptTemplate,
+		MergeSystem:   cfg.MergeSystemPrompt,
+		MergeTemplate: cfg.MergePromptTemplate,
 	}
 
 	opt := gepaopt.NewOptimizer(cfg, evalFn, reflector)
+	if plugin.HasMerge() {
+		opt.SetMergeFunc(func(ctx context.Context, in gepaopt.MergeInput) (string, string, error) {
+			return plugin.Merge(in, pluginEvaluateOptions{
+				Profile:       profile,
+				EngineOptions: engineOptions,
+			})
+		})
+	}
 
 	var recorder *runRecorder
 	if s.Record {
@@ -215,7 +268,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			Objective:   s.Objective,
 			MaxEvals:    s.MaxEvalCalls,
 			BatchSize:   s.BatchSize,
-			SeedPrompt:  seedText,
+			SeedPrompt:  seedTextForRecord,
 		})
 		if err != nil {
 			return errors.Wrap(err, "failed to create run recorder")
@@ -232,7 +285,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 		return closeErr
 	}
 
-	res, err := opt.Optimize(ctx, gepaopt.Candidate{"prompt": seedText}, examples)
+	res, err := opt.Optimize(ctx, seedCandidate, examples)
 	if err != nil {
 		return finalizeRun(err)
 	}
@@ -248,15 +301,23 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	fmt.Fprintf(w, "Calls used: %d / %d\n", res.CallsUsed, s.MaxEvalCalls)
 	fmt.Fprintf(w, "Best mean score (over cached evals): %.6f (n=%d)\n", res.BestStats.MeanScore, res.BestStats.N)
 
-	bestPrompt := res.BestCandidate["prompt"]
+	bestPrompt, hasPrompt := res.BestCandidate["prompt"]
 	if strings.TrimSpace(s.OutPrompt) != "" {
+		if !hasPrompt {
+			return finalizeRun(fmt.Errorf("best candidate does not contain a 'prompt' key (use --out-report to capture the full candidate)"))
+		}
 		if err := os.WriteFile(s.OutPrompt, []byte(bestPrompt), 0o644); err != nil {
 			return finalizeRun(errors.Wrap(err, "failed to write out prompt"))
 		}
 		fmt.Fprintf(w, "Wrote best prompt to: %s\n", s.OutPrompt)
 	} else {
 		fmt.Fprintln(w, "\n=== Best Prompt ===")
-		fmt.Fprintln(w, bestPrompt)
+		if hasPrompt {
+			fmt.Fprintln(w, bestPrompt)
+		} else {
+			blob, _ := json.MarshalIndent(res.BestCandidate, "", "  ")
+			fmt.Fprintln(w, string(blob))
+		}
 	}
 
 	if strings.TrimSpace(s.OutReport) != "" {
