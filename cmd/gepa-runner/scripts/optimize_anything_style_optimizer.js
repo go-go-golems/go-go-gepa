@@ -1,4 +1,4 @@
-const plugins = require("geppetto/plugins");
+const plugins = require("./lib/gepa_plugin_contract");
 const common = require("./lib/gepa_optimizer_common");
 
 module.exports = plugins.defineOptimizerPlugin({

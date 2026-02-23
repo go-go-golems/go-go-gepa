@@ -3,7 +3,7 @@
 `gepa-runner` runs a GEPA-style reflective optimization loop on top of:
 
 - Geppetto inference/runtime
-- JavaScript optimizer plugins (`require("geppetto")`, `require("geppetto/plugins")`)
+- JavaScript optimizer plugins (`require("geppetto")`) with local plugin-contract helper (`./lib/gepa_plugin_contract`)
 
 Current implementation includes:
 
@@ -135,7 +135,7 @@ If `initialCandidate()` is missing or empty, command fails explicitly.
 Plugin descriptor:
 
 ```js
-const plugins = require("geppetto/plugins");
+const plugins = require("./lib/gepa_plugin_contract");
 
 module.exports = plugins.defineOptimizerPlugin({
   apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,

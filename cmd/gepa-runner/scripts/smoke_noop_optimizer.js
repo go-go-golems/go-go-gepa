@@ -1,4 +1,4 @@
-const plugins = require("geppetto/plugins");
+const plugins = require("./lib/gepa_plugin_contract");
 
 module.exports = plugins.defineOptimizerPlugin({
   apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,

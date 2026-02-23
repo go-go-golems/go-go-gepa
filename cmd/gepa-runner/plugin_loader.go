@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,7 +52,23 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 
 	exported, err := rt.reqMod.Require(absScriptPath)
 	if err != nil {
-		return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
+		base := filepath.Base(absScriptPath)
+		baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
+		fallbacks := []string{
+			base,
+			baseNoExt,
+			"./" + base,
+			"./" + baseNoExt,
+		}
+		for _, mod := range fallbacks {
+			exported, err = rt.reqMod.Require(mod)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
+		}
 	}
 
 	descriptorObj := exported.ToObject(rt.vm)

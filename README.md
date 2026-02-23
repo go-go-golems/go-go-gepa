@@ -10,7 +10,7 @@ optimization ownership into this repository.
 - Runs one-shot benchmark evaluation (`eval`) for a fixed prompt/candidate.
 - Supports optional multi-objective Pareto scoring from plugin results.
 - Supports optional SQLite run recording (`--record`, `--record-db`).
-- Uses a JS plugin contract via `require("geppetto/plugins")`.
+- Uses a JS plugin contract helper via `./cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js`.
 
 ## Repository layout
 
