@@ -110,3 +110,101 @@ func containsInt(xs []int, v int) bool {
 	}
 	return false
 }
+
+func TestSelectComponentsRoundRobin(t *testing.T) {
+	opt := &Optimizer{
+		cfg:       Config{ComponentSelector: "round_robin"},
+		paramKeys: []string{"a", "b"},
+	}
+	parent := &candidateNode{
+		Candidate:      Candidate{"a": "x", "b": "y"},
+		NextParamIndex: 0,
+	}
+
+	c1 := opt.selectComponents(parent)
+	c2 := opt.selectComponents(parent)
+	c3 := opt.selectComponents(parent)
+
+	if len(c1) != 1 || c1[0] != "a" {
+		t.Fatalf("expected first key to be a, got %v", c1)
+	}
+	if len(c2) != 1 || c2[0] != "b" {
+		t.Fatalf("expected second key to be b, got %v", c2)
+	}
+	if len(c3) != 1 || c3[0] != "a" {
+		t.Fatalf("expected third key to cycle back to a, got %v", c3)
+	}
+}
+
+func TestSelectComponentsAll(t *testing.T) {
+	opt := &Optimizer{
+		cfg:       Config{ComponentSelector: "all"},
+		paramKeys: []string{"a", "b"},
+	}
+	parent := &candidateNode{
+		Candidate: Candidate{"a": "x", "b": "y"},
+	}
+
+	components := opt.selectComponents(parent)
+	if len(components) != 2 {
+		t.Fatalf("expected 2 components, got %v", components)
+	}
+	if components[0] != "a" || components[1] != "b" {
+		t.Fatalf("expected [a b], got %v", components)
+	}
+}
+
+func TestMergeChildMustBeatBestParent(t *testing.T) {
+	examples := []any{map[string]any{"x": 1}}
+
+	evalFn := func(_ context.Context, c Candidate, _ int, _ any) (EvalResult, error) {
+		switch c["prompt"] {
+		case "p0":
+			return EvalResult{Score: 0.50}, nil
+		case "p1":
+			return EvalResult{Score: 1.00}, nil
+		case "p06":
+			return EvalResult{Score: 0.60}, nil
+		default:
+			return EvalResult{Score: 0.10}, nil
+		}
+	}
+
+	reflector := &Reflector{
+		Engine: &constantEngine{text: "```p1```"},
+	}
+	cfg := Config{
+		MaxEvalCalls:     8,
+		BatchSize:        1,
+		RandomSeed:       7,
+		MergeProbability: 1.0,
+	}
+	opt := NewOptimizer(cfg, evalFn, reflector)
+	opt.SetMergeFunc(func(_ context.Context, _ MergeInput) (string, string, error) {
+		return "p06", "merge-raw", nil
+	})
+
+	res, err := opt.Optimize(context.Background(), Candidate{"prompt": "p0"}, examples)
+	if err != nil {
+		t.Fatalf("Optimize returned error: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("expected non-nil result")
+	}
+
+	if !hasCandidatePrompt(res.Candidates, "p1") {
+		t.Fatalf("expected accepted mutation candidate p1 in pool")
+	}
+	if hasCandidatePrompt(res.Candidates, "p06") {
+		t.Fatalf("merge child p06 should be rejected because it does not beat best parent")
+	}
+}
+
+func hasCandidatePrompt(cands []CandidateEntry, prompt string) bool {
+	for _, c := range cands {
+		if c.Candidate["prompt"] == prompt {
+			return true
+		}
+	}
+	return false
+}

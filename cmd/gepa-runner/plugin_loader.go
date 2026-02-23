@@ -440,7 +440,7 @@ func toFloat(v any) (float64, error) {
 		if strings.TrimSpace(x) == "" {
 			return 0, fmt.Errorf("empty string")
 		}
-		var num json.Number = json.Number(strings.TrimSpace(x))
+		num := json.Number(strings.TrimSpace(x))
 		return num.Float64()
 	default:
 		return 0, fmt.Errorf("unsupported numeric type %T", v)

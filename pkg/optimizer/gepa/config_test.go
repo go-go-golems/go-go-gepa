@@ -23,7 +23,25 @@ func TestConfigWithDefaults(t *testing.T) {
 	if got.ReflectionPromptTemplate == "" {
 		t.Fatalf("expected ReflectionPromptTemplate to be set")
 	}
+	if got.MergeSystemPrompt == "" {
+		t.Fatalf("expected MergeSystemPrompt to be set")
+	}
+	if got.MergePromptTemplate == "" {
+		t.Fatalf("expected MergePromptTemplate to be set")
+	}
+	if got.ComponentSelector != "round_robin" {
+		t.Fatalf("expected ComponentSelector=round_robin, got %q", got.ComponentSelector)
+	}
 	if got.Now == nil {
 		t.Fatalf("expected Now function to be set")
+	}
+}
+
+func TestConfigWithDefaultsClampsMergeProbability(t *testing.T) {
+	got := (Config{
+		MergeProbability: -1.0,
+	}).withDefaults()
+	if got.MergeProbability != 0 {
+		t.Fatalf("expected MergeProbability to clamp to 0, got %f", got.MergeProbability)
 	}
 }
