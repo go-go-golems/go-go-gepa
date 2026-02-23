@@ -1,56 +1,24 @@
 # gepa-runner
 
-`gepa-runner` is a small CLI that runs a **GEPA-style reflective prompt evolution loop** on top of:
+`gepa-runner` runs a GEPA-style reflective optimization loop on top of:
 
-- **Geppetto** (Go inference + tooling runtime)
-- **JS evaluation plugins** (goja + `require("geppetto")`)
+- Geppetto inference/runtime
+- JavaScript optimizer plugins (`require("geppetto")`, `require("geppetto/plugins")`)
 
-It is meant to feel similar to the JS scripting approach in `cozo-relationship-js-runner`, but focused on **prompt optimization / benchmarking**.
+Current implementation includes:
 
-## What this implements
-
-This is a **GEPA-inspired** implementation:
-
-- Minibatch sampling over a dataset
-- Natural-language **reflection** (LLM proposes prompt edits based on traces/feedback)
-- Simple Pareto selection when multi-objective scores are returned by the evaluator
-
-It does **not** (yet) port every detail of the reference implementation (e.g., specialized crossover/merge logic),
-but it is designed so you can add that on top of the same primitives.
+- reflection-based mutation
+- optional merge/crossover
+- multi-parameter candidate optimization
+- Pareto-aware parent selection (when evaluator returns multiple objectives)
+- optional SQLite run recording
 
 ## Quick start
-
-1. Write a JS plugin that exports an optimizer descriptor:
-
-```js
-const gp = require("geppetto");
-const plugins = require("geppetto/plugins");
-
-module.exports = plugins.defineOptimizerPlugin({
-  apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,
-  kind: "optimizer",
-  id: "my.task",
-  name: "My Task",
-
-  create(ctx) {
-    return {
-      dataset() { return [ /* examples */ ]; },
-      evaluate(input, options) {
-        const { candidate, example } = input;
-        // Run geppetto inference, compare to expected output
-        return { score: 1.0, output: "...", feedback: "..." };
-      }
-    };
-  }
-});
-```
-
-2. Run optimization:
 
 ```bash
 gepa-runner optimize \
   --script ./cmd/gepa-runner/scripts/toy_math_optimizer.js \
-  --seed "Answer the question." \
+  --seed "Answer the question. Respond with only the final answer." \
   --max-evals 200 \
   --batch-size 8 \
   --out-prompt best_prompt.txt \
@@ -58,59 +26,195 @@ gepa-runner optimize \
   --profile 4o-mini
 ```
 
-You can pass a dataset file instead of `dataset()`:
+Dataset can come from plugin `dataset()` or a file:
 
 ```bash
 gepa-runner optimize \
-  --script ./my_plugin.js \
+  --script ./my_optimizer.js \
   --dataset ./data/train.jsonl \
   --seed-file ./seed_prompt.txt
 ```
 
-## Evaluator contract
+## Optimize flags (important)
 
-The plugin instance must implement:
+Core:
 
-- `evaluate(input, options) -> object`
-  - `input.candidate` is an object (e.g., `{prompt: "..."}`)
-  - `input.example` is an example (any JSON value)
-  - must return at least:
-    - `score` (number, higher = better)
-  - optional:
-    - `objectiveScores` or `objectives` (object: `{name: number}`) for multi-objective Pareto selection
-    - `output`, `feedback`, `trace` (any JSON) — included in reflection side-info
+- `--script` JS plugin path (required)
+- `--dataset` optional JSON/JSONL dataset file
+- `--max-evals` evaluator call budget
+- `--batch-size` minibatch size
+- `--objective` optional natural-language objective prefix for reflection/merge prompts
 
-Optional:
+Seeding:
 
-- `dataset() -> array` (used if `--dataset` is not provided)
+- `--seed` prompt text
+- `--seed-file` prompt file
+- `--seed-candidate` JSON/YAML object map for multi-param seed
+- `--seedless` use plugin `initialCandidate()` when no seed/seed-file/seed-candidate is provided
 
-## Notes
+Merge / scheduler:
 
-- The optimizer currently mutates the `"prompt"` field (or falls back to the first key in `candidate`).
-- Each `(candidate, example)` evaluation counts as **1** call against `--max-evals`.
+- `--merge-prob` merge attempt probability
+- `--merge-scheduler` `probabilistic` (default) or `stagnation_due`
+- `--max-merges-due` cap for internal due counter (`stagnation_due` mode)
 
-## Persistent run recording (Phase 2)
+Multi-param:
 
-`gepa-runner` can persist optimize/eval metrics to SQLite:
+- `--optimizable-keys` comma-separated candidate keys to optimize
+- `--component-selector` `round_robin` (default) or `all`
 
-- `--record` enables persistence
-- `--record-db <path>` sets database path (default: `.gepa-runner/runs.sqlite`)
+Observability / outputs:
 
-Example:
+- `--show-events` print mutate/merge attempted/accepted/rejected events
+- `--out-prompt` write best candidate `prompt` key
+- `--out-report` write full JSON result
+- `--record` persist run metrics to SQLite
+- `--record-db` SQLite path (default: `.gepa-runner/runs.sqlite`)
+
+## Multi-parameter example
+
+`seed-candidate.yaml`:
+
+```yaml
+prompt: |
+  Solve the task and return final answer only.
+planner_prompt: |
+  Produce a short plan before solving.
+critic_prompt: |
+  Identify likely mistakes and verify output.
+```
+
+Run:
 
 ```bash
 gepa-runner optimize \
-  --script ./cmd/gepa-runner/scripts/smoke_noop_optimizer.js \
+  --script ./my_optimizer.js \
+  --dataset ./data/train.jsonl \
+  --seed-candidate ./seed-candidate.yaml \
+  --optimizable-keys prompt,planner_prompt,critic_prompt \
+  --component-selector round_robin
+```
+
+## Seedless mode example
+
+Plugin provides `initialCandidate()` and run uses `--seedless`:
+
+```bash
+gepa-runner optimize \
+  --script ./my_optimizer.js \
+  --dataset ./data/train.jsonl \
+  --seedless
+```
+
+If `initialCandidate()` is missing or empty, command fails explicitly.
+
+## JS plugin contract
+
+Plugin descriptor:
+
+```js
+const plugins = require("geppetto/plugins");
+
+module.exports = plugins.defineOptimizerPlugin({
+  apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "my.task",
+  name: "My Task",
+  create(ctx) {
+    return {
+      evaluate(input, options) {
+        return { score: 0.0 };
+      }
+    };
+  }
+});
+```
+
+### Required hook
+
+- `evaluate(input, options) -> object | number`
+
+`input` fields:
+
+- `candidate` map of strings
+- `example` dataset item
+- `exampleIndex` index of example
+
+Return:
+
+- required: `score` (number; higher is better)
+- optional:
+  - `objectiveScores` or `objectives` map of numbers
+  - `output`, `feedback`, `trace`, `notes` / `evaluatorNotes`
+
+### Optional hooks
+
+- `dataset() -> array`
+  - used when `--dataset` is not provided
+
+- `merge(input, options) -> string | object`
+  - aliases recognized: `mergeCandidate`, `mergePrompt`
+  - `input` includes `candidateA`, `candidateB`, `paramKey`, `paramA`, `paramB`, `sideInfoA`, `sideInfoB`
+
+- `initialCandidate(options) -> string | object`
+  - alias recognized: `getInitialCandidate`
+  - used by `--seedless`
+
+- `selectComponents(input, options) -> string | string[]`
+  - alias recognized: `chooseComponents`
+  - `input` includes `operation`, `parentId`, `parent2Id`, `candidate`, `availableKeys`, `nextParamIndex`
+
+- `componentSideInfo(input, options) -> string | object`
+  - aliases recognized: `sideInfoForComponent`, `buildSideInfo`
+  - `input` includes `operation`, `paramKey`, `examples`, `evals`, `maxChars`, `default`
+
+`options` fields passed to hooks:
+
+- `profile`
+- `engineOptions`
+- `tags`
+
+## Merge return decoding rules
+
+`merge(...)` can return:
+
+- a string (merged text)
+- an object with one of:
+  - `<paramKey>`
+  - `prompt`
+  - `merged`
+  - `mergedPrompt`
+  - `text`
+- or `{ candidate: { <paramKey>: "..." } }`
+
+## Event stream
+
+With `--show-events`, `optimize` prints one line per event, e.g.:
+
+```text
+[event] iter=7 type=merge_attempted op=merge parent=4 parent2=2 child=9 accepted=false baseline=0.812500 child=0.790000 keys=prompt
+```
+
+Event types:
+
+- `mutate_attempted`, `mutate_accepted`, `mutate_rejected`
+- `merge_attempted`, `merge_accepted`, `merge_rejected`
+
+## Recorded runs
+
+Persist optimize/eval metrics:
+
+```bash
+gepa-runner optimize \
+  --script ./cmd/gepa-runner/scripts/toy_math_optimizer.js \
   --seed "ok seed" \
-  --max-evals 4 \
+  --max-evals 8 \
   --batch-size 2 \
   --record \
   --record-db ./tmp/gepa-runs.sqlite
 ```
 
-## Reporting recorded runs
-
-Use `eval-report` to inspect recent runs:
+Inspect:
 
 ```bash
 gepa-runner eval-report --db ./tmp/gepa-runs.sqlite --limit-runs 20 --format table
