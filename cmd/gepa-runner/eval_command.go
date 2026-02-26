@@ -126,7 +126,16 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 	if err != nil {
 		return err
 	}
-	log.Info().Str("plugin_id", meta.ID).Str("plugin_name", meta.Name).Msg("Loaded evaluator plugin")
+	log.Info().
+		Str("plugin_id", meta.ID).
+		Str("plugin_name", meta.Name).
+		Str("plugin_registry_identifier", meta.RegistryIdentifier).
+		Msg("Loaded evaluator plugin")
+	pluginTags := map[string]any{
+		"plugin_id":                  meta.ID,
+		"plugin_name":                meta.Name,
+		"plugin_registry_identifier": meta.RegistryIdentifier,
+	}
 
 	var examples []any
 	if strings.TrimSpace(s.DatasetPath) != "" {
@@ -151,13 +160,14 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 			recordDB = ".gepa-runner/runs.sqlite"
 		}
 		recorder, err = newRunRecorder(runRecorderConfig{
-			DBPath:      recordDB,
-			Mode:        "eval",
-			PluginID:    meta.ID,
-			PluginName:  meta.Name,
-			Profile:     profile,
-			DatasetSize: len(examples),
-			SeedPrompt:  promptText,
+			DBPath:                   recordDB,
+			Mode:                     "eval",
+			PluginID:                 meta.ID,
+			PluginName:               meta.Name,
+			PluginRegistryIdentifier: meta.RegistryIdentifier,
+			Profile:                  profile,
+			DatasetSize:              len(examples),
+			SeedPrompt:               promptText,
 		})
 		if err != nil {
 			return errors.Wrap(err, "failed to create run recorder")
@@ -180,6 +190,7 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 		r, err := plugin.Evaluate(candidate, i, ex, pluginEvaluateOptions{
 			Profile:       profile,
 			EngineOptions: engineOptions,
+			Tags:          pluginTags,
 		})
 		if err != nil {
 			return finalizeRun(err)
@@ -197,7 +208,7 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 		}
 	}
 
-	fmt.Fprintf(w, "Plugin: %s (%s)\n", meta.Name, meta.ID)
+	fmt.Fprintf(w, "Plugin: %s (%s) [registry=%s]\n", meta.Name, meta.ID, meta.RegistryIdentifier)
 	fmt.Fprintf(w, "Dataset: %d examples\n", len(examples))
 	fmt.Fprintf(w, "Mean score: %.6f\n", stats.MeanScore)
 	if len(stats.MeanObjectives) > 0 {
@@ -208,10 +219,11 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 	if strings.TrimSpace(s.OutReport) != "" {
 		report := map[string]any{
 			"plugin": map[string]any{
-				"id":         meta.ID,
-				"name":       meta.Name,
-				"apiVersion": meta.APIVersion,
-				"kind":       meta.Kind,
+				"id":                 meta.ID,
+				"name":               meta.Name,
+				"apiVersion":         meta.APIVersion,
+				"kind":               meta.Kind,
+				"registryIdentifier": meta.RegistryIdentifier,
 			},
 			"stats": stats,
 		}

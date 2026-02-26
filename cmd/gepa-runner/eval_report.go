@@ -19,28 +19,30 @@ type evalReportOptions struct {
 }
 
 type runReportRow struct {
-	RunID          string   `json:"run_id"`
-	Mode           string   `json:"mode"`
-	Status         string   `json:"status"`
-	StartedAt      string   `json:"started_at"`
-	DurationMs     int64    `json:"duration_ms"`
-	PluginID       string   `json:"plugin_id"`
-	PluginName     string   `json:"plugin_name"`
-	DatasetSize    int64    `json:"dataset_size"`
-	CallsUsed      int64    `json:"calls_used"`
-	CandidateCount int64    `json:"candidate_count"`
-	Score          *float64 `json:"score,omitempty"`
-	Error          string   `json:"error,omitempty"`
+	RunID                    string   `json:"run_id"`
+	Mode                     string   `json:"mode"`
+	Status                   string   `json:"status"`
+	StartedAt                string   `json:"started_at"`
+	DurationMs               int64    `json:"duration_ms"`
+	PluginID                 string   `json:"plugin_id"`
+	PluginName               string   `json:"plugin_name"`
+	PluginRegistryIdentifier string   `json:"plugin_registry_identifier"`
+	DatasetSize              int64    `json:"dataset_size"`
+	CallsUsed                int64    `json:"calls_used"`
+	CandidateCount           int64    `json:"candidate_count"`
+	Score                    *float64 `json:"score,omitempty"`
+	Error                    string   `json:"error,omitempty"`
 }
 
 type pluginSummaryRow struct {
-	PluginID       string   `json:"plugin_id"`
-	Mode           string   `json:"mode"`
-	RunCount       int64    `json:"run_count"`
-	CompletedCount int64    `json:"completed_count"`
-	FailedCount    int64    `json:"failed_count"`
-	AvgDurationMs  *float64 `json:"avg_duration_ms,omitempty"`
-	AvgScore       *float64 `json:"avg_score,omitempty"`
+	PluginID                 string   `json:"plugin_id"`
+	PluginRegistryIdentifier string   `json:"plugin_registry_identifier"`
+	Mode                     string   `json:"mode"`
+	RunCount                 int64    `json:"run_count"`
+	CompletedCount           int64    `json:"completed_count"`
+	FailedCount              int64    `json:"failed_count"`
+	AvgDurationMs            *float64 `json:"avg_duration_ms,omitempty"`
+	AvgScore                 *float64 `json:"avg_score,omitempty"`
 }
 
 func newEvalReportCommand() *cobra.Command {
@@ -93,6 +95,9 @@ func runEvalReport(opts *evalReportOptions) error {
 	defer func() {
 		_ = db.Close()
 	}()
+	if err := ensureRecorderTables(db); err != nil {
+		return err
+	}
 
 	runRows, err := queryRunRows(db, opts.LimitRuns)
 	if err != nil {
@@ -127,17 +132,18 @@ func runEvalReport(opts *evalReportOptions) error {
 
 func queryRunRows(db *sql.DB, limitRuns int) ([]runReportRow, error) {
 	q := fmt.Sprintf(`
-SELECT
-  run_id,
-  mode,
-  status,
-  started_at_ms,
-  duration_ms,
-  plugin_id,
-  plugin_name,
-  dataset_size,
-  calls_used,
-  candidate_count,
+	SELECT
+	  run_id,
+	  mode,
+	  status,
+	  started_at_ms,
+	  duration_ms,
+	  plugin_id,
+	  plugin_name,
+	  plugin_registry_identifier,
+	  dataset_size,
+	  calls_used,
+	  candidate_count,
   COALESCE(best_mean_score, mean_score) AS score,
   error
 FROM %s
@@ -162,6 +168,7 @@ LIMIT ?
 		var durationMs sql.NullInt64
 		var pluginID sql.NullString
 		var pluginName sql.NullString
+		var pluginRegistryIdentifier sql.NullString
 		var datasetSize sql.NullInt64
 		var callsUsed sql.NullInt64
 		var candidateCount sql.NullInt64
@@ -176,6 +183,7 @@ LIMIT ?
 			&durationMs,
 			&pluginID,
 			&pluginName,
+			&pluginRegistryIdentifier,
 			&datasetSize,
 			&callsUsed,
 			&candidateCount,
@@ -196,18 +204,19 @@ LIMIT ?
 		}
 
 		out = append(out, runReportRow{
-			RunID:          runID,
-			Mode:           mode,
-			Status:         status,
-			StartedAt:      started,
-			DurationMs:     nullInt64Value(durationMs),
-			PluginID:       nullStringValueWithDefault(pluginID, "(unknown)"),
-			PluginName:     nullStringValue(pluginName),
-			DatasetSize:    nullInt64Value(datasetSize),
-			CallsUsed:      nullInt64Value(callsUsed),
-			CandidateCount: nullInt64Value(candidateCount),
-			Score:          scorePtr,
-			Error:          nullStringValue(lastError),
+			RunID:                    runID,
+			Mode:                     mode,
+			Status:                   status,
+			StartedAt:                started,
+			DurationMs:               nullInt64Value(durationMs),
+			PluginID:                 nullStringValueWithDefault(pluginID, "(unknown)"),
+			PluginName:               nullStringValue(pluginName),
+			PluginRegistryIdentifier: nullStringValueWithDefault(pluginRegistryIdentifier, defaultPluginRegistryIdentifier),
+			DatasetSize:              nullInt64Value(datasetSize),
+			CallsUsed:                nullInt64Value(callsUsed),
+			CandidateCount:           nullInt64Value(candidateCount),
+			Score:                    scorePtr,
+			Error:                    nullStringValue(lastError),
 		})
 	}
 
@@ -216,10 +225,11 @@ LIMIT ?
 
 func queryPluginSummaryRows(db *sql.DB, limitRuns int) ([]pluginSummaryRow, error) {
 	q := fmt.Sprintf(`
-SELECT
-  COALESCE(NULLIF(plugin_id, ''), '(unknown)') AS plugin_id,
-  mode,
-  COUNT(*) AS run_count,
+	SELECT
+	  COALESCE(NULLIF(plugin_id, ''), '(unknown)') AS plugin_id,
+	  COALESCE(NULLIF(plugin_registry_identifier, ''), ? ) AS plugin_registry_identifier,
+	  mode,
+	  COUNT(*) AS run_count,
   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
   AVG(CAST(duration_ms AS REAL)) AS avg_duration_ms,
@@ -231,11 +241,11 @@ WHERE run_id IN (
   ORDER BY started_at_ms DESC
   LIMIT ?
 )
-GROUP BY COALESCE(NULLIF(plugin_id, ''), '(unknown)'), mode
-ORDER BY run_count DESC, plugin_id ASC, mode ASC
-`, gepaRunsTable, gepaRunsTable)
+GROUP BY COALESCE(NULLIF(plugin_id, ''), '(unknown)'), COALESCE(NULLIF(plugin_registry_identifier, ''), ?), mode
+ORDER BY run_count DESC, plugin_id ASC, plugin_registry_identifier ASC, mode ASC
+	`, gepaRunsTable, gepaRunsTable)
 
-	rows, err := db.Query(q, limitRuns)
+	rows, err := db.Query(q, defaultPluginRegistryIdentifier, limitRuns, defaultPluginRegistryIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +256,7 @@ ORDER BY run_count DESC, plugin_id ASC, mode ASC
 	out := make([]pluginSummaryRow, 0, 8)
 	for rows.Next() {
 		var pluginID string
+		var pluginRegistryIdentifier string
 		var mode string
 		var runCount sql.NullInt64
 		var completed sql.NullInt64
@@ -255,6 +266,7 @@ ORDER BY run_count DESC, plugin_id ASC, mode ASC
 
 		if err := rows.Scan(
 			&pluginID,
+			&pluginRegistryIdentifier,
 			&mode,
 			&runCount,
 			&completed,
@@ -277,13 +289,14 @@ ORDER BY run_count DESC, plugin_id ASC, mode ASC
 		}
 
 		out = append(out, pluginSummaryRow{
-			PluginID:       pluginID,
-			Mode:           mode,
-			RunCount:       nullInt64Value(runCount),
-			CompletedCount: nullInt64Value(completed),
-			FailedCount:    nullInt64Value(failed),
-			AvgDurationMs:  avgDurationPtr,
-			AvgScore:       avgScorePtr,
+			PluginID:                 pluginID,
+			PluginRegistryIdentifier: pluginRegistryIdentifier,
+			Mode:                     mode,
+			RunCount:                 nullInt64Value(runCount),
+			CompletedCount:           nullInt64Value(completed),
+			FailedCount:              nullInt64Value(failed),
+			AvgDurationMs:            avgDurationPtr,
+			AvgScore:                 avgScorePtr,
 		})
 	}
 	return out, rows.Err()
@@ -298,9 +311,9 @@ func printRunsTable(rows []runReportRow) {
 		if row.Score != nil {
 			score = fmt.Sprintf("%.6f", *row.Score)
 		}
-		plugin := row.PluginID
+		plugin := fmt.Sprintf("%s@%s", row.PluginID, row.PluginRegistryIdentifier)
 		if strings.TrimSpace(row.PluginName) != "" {
-			plugin = fmt.Sprintf("%s (%s)", row.PluginName, row.PluginID)
+			plugin = fmt.Sprintf("%s (%s@%s)", row.PluginName, row.PluginID, row.PluginRegistryIdentifier)
 		}
 		_, _ = fmt.Fprintf(
 			w,
@@ -336,7 +349,7 @@ func printPluginSummaryTable(rows []pluginSummaryRow) {
 		_, _ = fmt.Fprintf(
 			w,
 			"%s\t%s\t%d\t%d\t%d\t%s\t%s\n",
-			row.PluginID,
+			fmt.Sprintf("%s@%s", row.PluginID, row.PluginRegistryIdentifier),
 			row.Mode,
 			row.RunCount,
 			row.CompletedCount,

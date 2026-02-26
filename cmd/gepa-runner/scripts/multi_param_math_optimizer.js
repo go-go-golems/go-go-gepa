@@ -1,4 +1,4 @@
-const plugins = require("./lib/gepa_plugin_contract");
+const plugins = require("gepa/plugins");
 const common = require("./lib/gepa_optimizer_common");
 
 module.exports = plugins.defineOptimizerPlugin({

@@ -52,6 +52,7 @@ func newJSRuntime(scriptRoot string) (*jsRuntime, error) {
 		Runner: runner,
 		Logger: zerolog.New(zerolog.NewConsoleWriter()),
 	})
+	registerGepaPluginsModule(reg)
 
 	reqMod := reg.Enable(vm)
 

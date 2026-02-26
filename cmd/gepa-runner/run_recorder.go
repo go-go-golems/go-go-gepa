@@ -22,42 +22,44 @@ const (
 )
 
 type runRecorderConfig struct {
-	DBPath      string
-	Mode        string
-	PluginID    string
-	PluginName  string
-	Profile     string
-	DatasetSize int
-	Objective   string
-	MaxEvals    int
-	BatchSize   int
-	SeedPrompt  string
+	DBPath                   string
+	Mode                     string
+	PluginID                 string
+	PluginName               string
+	PluginRegistryIdentifier string
+	Profile                  string
+	DatasetSize              int
+	Objective                string
+	MaxEvals                 int
+	BatchSize                int
+	SeedPrompt               string
 }
 
 type runRecord struct {
-	RunID             string
-	Mode              string
-	Status            string
-	StartedAtMs       int64
-	FinishedAtMs      int64
-	DurationMs        int64
-	PluginID          string
-	PluginName        string
-	Profile           string
-	DatasetSize       int
-	Objective         string
-	MaxEvals          int
-	BatchSize         int
-	CallsUsed         int
-	BestMeanScore     *float64
-	BestN             *int
-	MeanScore         *float64
-	MeanN             *int
-	CandidateCount    int
-	BestCandidateHash string
-	SeedPromptSHA256  string
-	ErrorMessage      string
-	CreatedAtMs       int64
+	RunID                    string
+	Mode                     string
+	Status                   string
+	StartedAtMs              int64
+	FinishedAtMs             int64
+	DurationMs               int64
+	PluginID                 string
+	PluginName               string
+	PluginRegistryIdentifier string
+	Profile                  string
+	DatasetSize              int
+	Objective                string
+	MaxEvals                 int
+	BatchSize                int
+	CallsUsed                int
+	BestMeanScore            *float64
+	BestN                    *int
+	MeanScore                *float64
+	MeanN                    *int
+	CandidateCount           int
+	BestCandidateHash        string
+	SeedPromptSHA256         string
+	ErrorMessage             string
+	CreatedAtMs              int64
 }
 
 type candidateMetricRow struct {
@@ -120,19 +122,20 @@ func newRunRecorder(cfg runRecorderConfig) (*runRecorder, error) {
 	rec := &runRecorder{
 		db: db,
 		run: runRecord{
-			RunID:            generateRunID(mode),
-			Mode:             mode,
-			Status:           "running",
-			StartedAtMs:      nowMs,
-			PluginID:         strings.TrimSpace(cfg.PluginID),
-			PluginName:       strings.TrimSpace(cfg.PluginName),
-			Profile:          strings.TrimSpace(cfg.Profile),
-			DatasetSize:      cfg.DatasetSize,
-			Objective:        strings.TrimSpace(cfg.Objective),
-			MaxEvals:         cfg.MaxEvals,
-			BatchSize:        cfg.BatchSize,
-			SeedPromptSHA256: hashString(strings.TrimSpace(cfg.SeedPrompt)),
-			CreatedAtMs:      nowMs,
+			RunID:                    generateRunID(mode),
+			Mode:                     mode,
+			Status:                   "running",
+			StartedAtMs:              nowMs,
+			PluginID:                 strings.TrimSpace(cfg.PluginID),
+			PluginName:               strings.TrimSpace(cfg.PluginName),
+			PluginRegistryIdentifier: firstNonEmpty(cfg.PluginRegistryIdentifier, defaultPluginRegistryIdentifier),
+			Profile:                  strings.TrimSpace(cfg.Profile),
+			DatasetSize:              cfg.DatasetSize,
+			Objective:                strings.TrimSpace(cfg.Objective),
+			MaxEvals:                 cfg.MaxEvals,
+			BatchSize:                cfg.BatchSize,
+			SeedPromptSHA256:         hashString(strings.TrimSpace(cfg.SeedPrompt)),
+			CreatedAtMs:              nowMs,
 		},
 		candidates: make([]candidateMetricRow, 0, 16),
 		evals:      make([]evalExampleRow, 0, 64),
@@ -291,18 +294,19 @@ func (r *runRecorder) RunID() string {
 
 func (r *runRecorder) insertRun(tx *sql.Tx) error {
 	_, err := tx.Exec(`
-INSERT OR REPLACE INTO gepa_runs (
-  run_id,
-  mode,
-  status,
-  started_at_ms,
-  finished_at_ms,
-  duration_ms,
-  plugin_id,
-  plugin_name,
-  profile,
-  dataset_size,
-  objective,
+	INSERT OR REPLACE INTO gepa_runs (
+	  run_id,
+	  mode,
+	  status,
+	  started_at_ms,
+	  finished_at_ms,
+	  duration_ms,
+	  plugin_id,
+	  plugin_name,
+	  plugin_registry_identifier,
+	  profile,
+	  dataset_size,
+	  objective,
   max_evals,
   batch_size,
   calls_used,
@@ -315,7 +319,7 @@ INSERT OR REPLACE INTO gepa_runs (
   seed_prompt_sha256,
   error,
   created_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.run.RunID,
 		r.run.Mode,
 		r.run.Status,
@@ -324,6 +328,7 @@ INSERT OR REPLACE INTO gepa_runs (
 		r.run.DurationMs,
 		nullableString(r.run.PluginID),
 		nullableString(r.run.PluginName),
+		nullableString(r.run.PluginRegistryIdentifier),
 		nullableString(r.run.Profile),
 		r.run.DatasetSize,
 		nullableString(r.run.Objective),
@@ -445,6 +450,7 @@ func ensureRecorderTables(db *sql.DB) error {
   duration_ms INTEGER NOT NULL,
   plugin_id TEXT,
   plugin_name TEXT,
+  plugin_registry_identifier TEXT,
   profile TEXT,
   dataset_size INTEGER NOT NULL DEFAULT 0,
   objective TEXT,
@@ -498,7 +504,46 @@ func ensureRecorderTables(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := ensureColumnExists(db, gepaRunsTable, "plugin_registry_identifier", "TEXT"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func ensureColumnExists(db *sql.DB, table, column, columnType string) error {
+	if db == nil {
+		return fmt.Errorf("run recorder: db is nil")
+	}
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var (
+		cid       int
+		name      string
+		typ       string
+		notnull   int
+		dfltValue sql.NullString
+		pk        int
+	)
+	for rows.Next() {
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, columnType))
+	return err
 }
 
 func ensureParentDir(path string) error {

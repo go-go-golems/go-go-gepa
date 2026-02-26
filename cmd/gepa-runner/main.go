@@ -167,7 +167,16 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	if err != nil {
 		return err
 	}
-	log.Info().Str("plugin_id", meta.ID).Str("plugin_name", meta.Name).Msg("Loaded optimizer plugin")
+	log.Info().
+		Str("plugin_id", meta.ID).
+		Str("plugin_name", meta.Name).
+		Str("plugin_registry_identifier", meta.RegistryIdentifier).
+		Msg("Loaded optimizer plugin")
+	pluginTags := map[string]any{
+		"plugin_id":                  meta.ID,
+		"plugin_name":                meta.Name,
+		"plugin_registry_identifier": meta.RegistryIdentifier,
+	}
 
 	var seedCandidate gepaopt.Candidate
 	seedTextForRecord := ""
@@ -199,6 +208,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			cand, err := plugin.InitialCandidate(pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
+				Tags:          pluginTags,
 			})
 			if err != nil {
 				return err
@@ -240,6 +250,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 		return plugin.Evaluate(cand, exampleIndex, example, pluginEvaluateOptions{
 			Profile:       profile,
 			EngineOptions: engineOptions,
+			Tags:          pluginTags,
 		})
 	}
 
@@ -278,6 +289,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			return plugin.Merge(in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
+				Tags:          pluginTags,
 			})
 		})
 	}
@@ -286,6 +298,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			return plugin.SelectComponents(in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
+				Tags:          pluginTags,
 			})
 		})
 	}
@@ -294,6 +307,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			return plugin.ComponentSideInfo(in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
+				Tags:          pluginTags,
 			})
 		})
 	}
@@ -323,16 +337,17 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			recordDB = ".gepa-runner/runs.sqlite"
 		}
 		recorder, err = newRunRecorder(runRecorderConfig{
-			DBPath:      recordDB,
-			Mode:        "optimize",
-			PluginID:    meta.ID,
-			PluginName:  meta.Name,
-			Profile:     profile,
-			DatasetSize: len(examples),
-			Objective:   s.Objective,
-			MaxEvals:    s.MaxEvalCalls,
-			BatchSize:   s.BatchSize,
-			SeedPrompt:  seedTextForRecord,
+			DBPath:                   recordDB,
+			Mode:                     "optimize",
+			PluginID:                 meta.ID,
+			PluginName:               meta.Name,
+			PluginRegistryIdentifier: meta.RegistryIdentifier,
+			Profile:                  profile,
+			DatasetSize:              len(examples),
+			Objective:                s.Objective,
+			MaxEvals:                 s.MaxEvalCalls,
+			BatchSize:                s.BatchSize,
+			SeedPrompt:               seedTextForRecord,
 		})
 		if err != nil {
 			return errors.Wrap(err, "failed to create run recorder")
@@ -360,7 +375,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 
 	// Output summary.
-	fmt.Fprintf(w, "Plugin: %s (%s)\n", meta.Name, meta.ID)
+	fmt.Fprintf(w, "Plugin: %s (%s) [registry=%s]\n", meta.Name, meta.ID, meta.RegistryIdentifier)
 	fmt.Fprintf(w, "Dataset: %d examples\n", len(examples))
 	fmt.Fprintf(w, "Calls used: %d / %d\n", res.CallsUsed, s.MaxEvalCalls)
 	fmt.Fprintf(w, "Best mean score (over cached evals): %.6f (n=%d)\n", res.BestStats.MeanScore, res.BestStats.N)
@@ -385,7 +400,22 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 
 	if strings.TrimSpace(s.OutReport) != "" {
-		blob, _ := json.MarshalIndent(res, "", "  ")
+		report := map[string]any{}
+		if resBlob, err := json.Marshal(res); err == nil {
+			_ = json.Unmarshal(resBlob, &report)
+		}
+		if report == nil {
+			report = map[string]any{}
+		}
+		report["plugin"] = map[string]any{
+			"id":                 meta.ID,
+			"name":               meta.Name,
+			"apiVersion":         meta.APIVersion,
+			"kind":               meta.Kind,
+			"registryIdentifier": meta.RegistryIdentifier,
+		}
+
+		blob, _ := json.MarshalIndent(report, "", "  ")
 		if err := os.WriteFile(s.OutReport, blob, 0o644); err != nil {
 			return finalizeRun(errors.Wrap(err, "failed to write out report"))
 		}

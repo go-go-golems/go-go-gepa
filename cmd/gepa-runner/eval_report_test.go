@@ -34,6 +34,11 @@ func TestEvalReportQueriesAndFormats(t *testing.T) {
 	if len(runRows) != 2 {
 		t.Fatalf("expected 2 run rows, got %d", len(runRows))
 	}
+	for _, row := range runRows {
+		if row.PluginRegistryIdentifier != defaultPluginRegistryIdentifier {
+			t.Fatalf("expected plugin registry identifier %q, got %q", defaultPluginRegistryIdentifier, row.PluginRegistryIdentifier)
+		}
+	}
 
 	pluginRows, err := queryPluginSummaryRows(db, 20)
 	if err != nil {
@@ -41,6 +46,11 @@ func TestEvalReportQueriesAndFormats(t *testing.T) {
 	}
 	if len(pluginRows) == 0 {
 		t.Fatalf("expected plugin summary rows")
+	}
+	for _, row := range pluginRows {
+		if row.PluginRegistryIdentifier != defaultPluginRegistryIdentifier {
+			t.Fatalf("expected plugin summary registry identifier %q, got %q", defaultPluginRegistryIdentifier, row.PluginRegistryIdentifier)
+		}
 	}
 
 	// JSON output path.
@@ -71,6 +81,9 @@ func TestEvalReportQueriesAndFormats(t *testing.T) {
 	}
 	if !strings.Contains(tableOut, "Recent GEPA runs") {
 		t.Fatalf("expected table output header, got: %s", tableOut)
+	}
+	if !strings.Contains(tableOut, "@"+defaultPluginRegistryIdentifier) {
+		t.Fatalf("expected table output to include plugin registry identifier, got: %s", tableOut)
 	}
 }
 

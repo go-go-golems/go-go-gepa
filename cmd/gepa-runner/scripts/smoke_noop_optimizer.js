@@ -1,4 +1,4 @@
-const plugins = require("./lib/gepa_plugin_contract");
+const plugins = require("gepa/plugins");
 
 module.exports = plugins.defineOptimizerPlugin({
   apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,

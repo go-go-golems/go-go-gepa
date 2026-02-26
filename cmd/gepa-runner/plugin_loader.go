@@ -15,12 +15,14 @@ import (
 )
 
 const optimizerPluginAPIVersion = "gepa.optimizer/v1"
+const defaultPluginRegistryIdentifier = "local"
 
 type optimizerPluginMeta struct {
-	APIVersion string
-	Kind       string
-	ID         string
-	Name       string
+	APIVersion         string
+	Kind               string
+	ID                 string
+	Name               string
+	RegistryIdentifier string
 }
 
 type pluginEvaluateOptions struct {
@@ -90,6 +92,10 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 	if hostContext == nil {
 		hostContext = map[string]any{}
 	}
+	if strings.TrimSpace(meta.RegistryIdentifier) == "" {
+		meta.RegistryIdentifier = defaultPluginRegistryIdentifier
+	}
+	hostContext["pluginRegistryIdentifier"] = meta.RegistryIdentifier
 
 	instanceVal, err := createFn(descriptorObj, rt.vm.ToValue(hostContext))
 	if err != nil {
@@ -143,10 +149,11 @@ func findOptionalCallable(obj *goja.Object, keys ...string) goja.Callable {
 }
 
 func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
-	apiVersion := strings.TrimSpace(descriptorObj.Get("apiVersion").String())
-	kind := strings.TrimSpace(descriptorObj.Get("kind").String())
-	id := strings.TrimSpace(descriptorObj.Get("id").String())
-	name := strings.TrimSpace(descriptorObj.Get("name").String())
+	apiVersion := decodeOptionalJSString(descriptorObj.Get("apiVersion"))
+	kind := decodeOptionalJSString(descriptorObj.Get("kind"))
+	id := decodeOptionalJSString(descriptorObj.Get("id"))
+	name := decodeOptionalJSString(descriptorObj.Get("name"))
+	registryIdentifier := decodeOptionalJSString(descriptorObj.Get("registryIdentifier"))
 
 	if apiVersion == "" {
 		return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.apiVersion is required")
@@ -172,11 +179,28 @@ func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta,
 	}
 
 	return optimizerPluginMeta{
-		APIVersion: apiVersion,
-		Kind:       kind,
-		ID:         id,
-		Name:       name,
+		APIVersion:         apiVersion,
+		Kind:               kind,
+		ID:                 id,
+		Name:               name,
+		RegistryIdentifier: firstNonEmpty(registryIdentifier, defaultPluginRegistryIdentifier),
 	}, nil
+}
+
+func decodeOptionalJSString(v goja.Value) string {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return ""
+	}
+	return strings.TrimSpace(v.String())
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func (p *optimizerPlugin) Dataset() ([]any, error) {

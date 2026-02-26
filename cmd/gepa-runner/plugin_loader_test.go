@@ -1,12 +1,117 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dop251/goja"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 )
+
+func TestDecodeOptimizerPluginMetaDefaultsRegistryIdentifier(t *testing.T) {
+	vm := goja.New()
+	descriptor := vm.NewObject()
+	_ = descriptor.Set("apiVersion", optimizerPluginAPIVersion)
+	_ = descriptor.Set("kind", "optimizer")
+	_ = descriptor.Set("id", "example.optimizer")
+	_ = descriptor.Set("name", "Example Optimizer")
+	_ = descriptor.Set("create", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
+
+	meta, err := decodeOptimizerPluginMeta(descriptor)
+	if err != nil {
+		t.Fatalf("decodeOptimizerPluginMeta returned error: %v", err)
+	}
+	if meta.RegistryIdentifier != defaultPluginRegistryIdentifier {
+		t.Fatalf("expected default registry identifier %q, got %q", defaultPluginRegistryIdentifier, meta.RegistryIdentifier)
+	}
+}
+
+func TestDecodeOptimizerPluginMetaUsesExplicitRegistryIdentifier(t *testing.T) {
+	vm := goja.New()
+	descriptor := vm.NewObject()
+	_ = descriptor.Set("apiVersion", optimizerPluginAPIVersion)
+	_ = descriptor.Set("kind", "optimizer")
+	_ = descriptor.Set("id", "example.optimizer")
+	_ = descriptor.Set("name", "Example Optimizer")
+	_ = descriptor.Set("registryIdentifier", "registry.example/optimizer")
+	_ = descriptor.Set("create", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
+
+	meta, err := decodeOptimizerPluginMeta(descriptor)
+	if err != nil {
+		t.Fatalf("decodeOptimizerPluginMeta returned error: %v", err)
+	}
+	if meta.RegistryIdentifier != "registry.example/optimizer" {
+		t.Fatalf("unexpected registry identifier: %q", meta.RegistryIdentifier)
+	}
+}
+
+func TestLoadOptimizerPluginInjectsRegistryIdentifierIntoHostContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "plugin.js")
+	script := `
+const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineOptimizerPlugin({
+  apiVersion: OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "example.optimizer",
+  name: "Example Optimizer",
+  registryIdentifier: "registry.example/optimizer",
+  create(hostContext) {
+    return {
+      evaluate() {
+        return {
+          score: 1,
+          objectives: { score: 1 },
+          feedback: "ok",
+          output: { registry: hostContext.pluginRegistryIdentifier }
+        };
+      },
+      dataset() {
+        return [{ prompt: "example" }];
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	hostContext := map[string]any{
+		"app": "test",
+	}
+	plugin, meta, err := loadOptimizerPlugin(rt, scriptPath, hostContext)
+	if err != nil {
+		t.Fatalf("loadOptimizerPlugin failed: %v", err)
+	}
+	if meta.RegistryIdentifier != "registry.example/optimizer" {
+		t.Fatalf("unexpected plugin registry identifier in meta: %q", meta.RegistryIdentifier)
+	}
+	if got, _ := hostContext["pluginRegistryIdentifier"].(string); got != "registry.example/optimizer" {
+		t.Fatalf("hostContext pluginRegistryIdentifier mismatch: %q", got)
+	}
+
+	res, err := plugin.Evaluate(gepaopt.Candidate{"prompt": "test"}, 0, map[string]any{"prompt": "sample"}, pluginEvaluateOptions{})
+	if err != nil {
+		t.Fatalf("plugin Evaluate failed: %v", err)
+	}
+	output, ok := res.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("expected output map, got %T", res.Output)
+	}
+	if got, _ := output["registry"].(string); got != "registry.example/optimizer" {
+		t.Fatalf("expected registry in output, got %q", got)
+	}
+}
 
 func TestDecodeMergeOutputString(t *testing.T) {
 	got, err := decodeMergeOutput(" merged prompt ", "prompt")

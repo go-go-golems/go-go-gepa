@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -89,9 +90,10 @@ func TestRunRecorderOptimizeWritesRunAndCandidates(t *testing.T) {
 	var callsUsed int
 	var candidateCount int
 	var bestCandidateHash string
+	var pluginRegistryIdentifier string
 	if err := db.QueryRow(
-		`SELECT status, calls_used, candidate_count, best_candidate_hash FROM gepa_runs LIMIT 1`,
-	).Scan(&status, &callsUsed, &candidateCount, &bestCandidateHash); err != nil {
+		`SELECT status, calls_used, candidate_count, best_candidate_hash, plugin_registry_identifier FROM gepa_runs LIMIT 1`,
+	).Scan(&status, &callsUsed, &candidateCount, &bestCandidateHash, &pluginRegistryIdentifier); err != nil {
 		t.Fatalf("query gepa_runs failed: %v", err)
 	}
 	if status != "completed" {
@@ -105,6 +107,9 @@ func TestRunRecorderOptimizeWritesRunAndCandidates(t *testing.T) {
 	}
 	if bestCandidateHash != bestHash {
 		t.Fatalf("expected best hash %q, got %q", bestHash, bestCandidateHash)
+	}
+	if pluginRegistryIdentifier != defaultPluginRegistryIdentifier {
+		t.Fatalf("expected plugin registry identifier %q, got %q", defaultPluginRegistryIdentifier, pluginRegistryIdentifier)
 	}
 
 	var candidateRows int
@@ -180,7 +185,8 @@ func TestRunRecorderEvalWritesExampleRowsAndFailureStatus(t *testing.T) {
 	}()
 
 	var status, errMsg string
-	if err := db.QueryRow(`SELECT status, COALESCE(error, '') FROM gepa_runs LIMIT 1`).Scan(&status, &errMsg); err != nil {
+	var pluginRegistryIdentifier string
+	if err := db.QueryRow(`SELECT status, COALESCE(error, ''), plugin_registry_identifier FROM gepa_runs LIMIT 1`).Scan(&status, &errMsg, &pluginRegistryIdentifier); err != nil {
 		t.Fatalf("query gepa_runs failed: %v", err)
 	}
 	if status != "failed" {
@@ -188,6 +194,9 @@ func TestRunRecorderEvalWritesExampleRowsAndFailureStatus(t *testing.T) {
 	}
 	if !strings.Contains(errMsg, "run failed") {
 		t.Fatalf("expected error message to contain run failure, got %q", errMsg)
+	}
+	if pluginRegistryIdentifier != defaultPluginRegistryIdentifier {
+		t.Fatalf("expected plugin registry identifier %q, got %q", defaultPluginRegistryIdentifier, pluginRegistryIdentifier)
 	}
 
 	var evalRows int
@@ -197,4 +206,87 @@ func TestRunRecorderEvalWritesExampleRowsAndFailureStatus(t *testing.T) {
 	if evalRows != 2 {
 		t.Fatalf("expected 2 eval rows, got %d", evalRows)
 	}
+}
+
+func TestEnsureRecorderTablesAddsPluginRegistryIdentifierToLegacySchema(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "legacy.sqlite")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	legacySchema := `
+CREATE TABLE gepa_runs (
+  run_id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  finished_at_ms INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  plugin_id TEXT,
+  plugin_name TEXT,
+  profile TEXT,
+  dataset_size INTEGER NOT NULL DEFAULT 0,
+  objective TEXT,
+  max_evals INTEGER,
+  batch_size INTEGER,
+  calls_used INTEGER,
+  best_mean_score REAL,
+  best_n INTEGER,
+  mean_score REAL,
+  mean_n INTEGER,
+  candidate_count INTEGER,
+  best_candidate_hash TEXT,
+  seed_prompt_sha256 TEXT,
+  error TEXT,
+  created_at_ms INTEGER NOT NULL
+)`
+	if _, err := db.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy gepa_runs schema failed: %v", err)
+	}
+
+	if err := ensureRecorderTables(db); err != nil {
+		t.Fatalf("ensureRecorderTables failed: %v", err)
+	}
+
+	exists, err := hasColumn(db, gepaRunsTable, "plugin_registry_identifier")
+	if err != nil {
+		t.Fatalf("hasColumn failed: %v", err)
+	}
+	if !exists {
+		t.Fatalf("expected plugin_registry_identifier column to be present after migration")
+	}
+}
+
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var (
+		cid       int
+		name      string
+		typ       string
+		notnull   int
+		dfltValue sql.NullString
+		pk        int
+	)
+	for rows.Next() {
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
