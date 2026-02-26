@@ -1,0 +1,49 @@
+     1	const OPTIMIZER_PLUGIN_API_VERSION = "gepa.optimizer/v1";
+     2	
+     3	function toTrimmedString(v) {
+     4	  return String(v == null ? "" : v).trim();
+     5	}
+     6	
+     7	function defineOptimizerPlugin(descriptor) {
+     8	  const d = (descriptor && typeof descriptor === "object") ? descriptor : null;
+     9	  if (!d) {
+    10	    throw new Error("plugin descriptor must be an object");
+    11	  }
+    12	
+    13	  const apiVersion = toTrimmedString(d.apiVersion || OPTIMIZER_PLUGIN_API_VERSION);
+    14	  if (apiVersion !== OPTIMIZER_PLUGIN_API_VERSION) {
+    15	    throw new Error(`unsupported plugin descriptor apiVersion "${apiVersion}" (expected "${OPTIMIZER_PLUGIN_API_VERSION}")`);
+    16	  }
+    17	
+    18	  const kind = toTrimmedString(d.kind || "optimizer");
+    19	  if (kind !== "optimizer") {
+    20	    throw new Error(`plugin descriptor kind must be "optimizer", got "${kind}"`);
+    21	  }
+    22	
+    23	  const id = toTrimmedString(d.id);
+    24	  if (!id) {
+    25	    throw new Error("plugin descriptor id is required");
+    26	  }
+    27	
+    28	  const name = toTrimmedString(d.name);
+    29	  if (!name) {
+    30	    throw new Error("plugin descriptor name is required");
+    31	  }
+    32	
+    33	  if (typeof d.create !== "function") {
+    34	    throw new Error("plugin descriptor create must be a function");
+    35	  }
+    36	
+    37	  return Object.freeze({
+    38	    apiVersion,
+    39	    kind,
+    40	    id,
+    41	    name,
+    42	    create: d.create,
+    43	  });
+    44	}
+    45	
+    46	module.exports = {
+    47	  OPTIMIZER_PLUGIN_API_VERSION,
+    48	  defineOptimizerPlugin,
+    49	};

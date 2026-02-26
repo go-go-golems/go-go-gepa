@@ -1,0 +1,261 @@
+   680	Carefully analyze all the evaluation data provided above. Look for patterns that indicate what works and what doesn't. Pay special attention to:
+   681	- Performance metrics and how they correlate with parameter behavior
+   682	- Recurring issues, errors, or failure patterns across multiple test cases
+   683	- Successful patterns or behaviors that should be preserved or enhanced
+   684	- Any domain-specific requirements, constraints, or factual information revealed in the evaluation data
+   685	- Specific technical details that are crucial for understanding the parameter's role
+   686	
+   687	Based on your analysis, propose a new parameter value that addresses the identified issues while maintaining or improving upon what works well. Your proposal should be directly informed by the patterns and insights from the evaluation data.
+   688	
+   689	Provide the new parameter value within ``` blocks."""
+   690	
+   691	
+   692	# --- Component 2: Proposer Configurations ---
+   693	@dataclass
+   694	class ReflectionConfig:
+   695	    """Controls how the LLM proposes improved candidates each iteration.
+   696	
+   697	    The reflection LM sees evaluation feedback (side_info) for a minibatch of
+   698	    examples and proposes an improved candidate.  ``reflection_lm`` is the
+   699	    model used for this step (defaults to ``openai/gpt-5.1``).
+   700	
+   701	    ``reflection_minibatch_size`` controls how many examples are shown per
+   702	    reflection step (default: 1 for single-task, 3 otherwise).  Showing a
+   703	    small minibatch rather than all examples at once produces focused,
+   704	    targeted improvements on that subset.  Over iterations, all examples get
+   705	    attention, and the Pareto frontier preserves specialized gains across
+   706	    iterations rather than averaging them away.
+   707	    """
+   708	
+   709	    skip_perfect_score: bool = False
+   710	    perfect_score: float | None = None
+   711	    batch_sampler: BatchSampler | Literal["epoch_shuffled"] = "epoch_shuffled"
+   712	    reflection_minibatch_size: int | None = None  # Default: 1 for single-instance mode, 3 otherwise
+   713	    module_selector: ReflectionComponentSelector | Literal["round_robin", "all"] = "round_robin"
+   714	    reflection_lm: LanguageModel | str | None = "openai/gpt-5.1"
+   715	    reflection_prompt_template: str | dict[str, str] | None = optimize_anything_reflection_prompt_template
+   716	    custom_candidate_proposer: ProposalFn | None = None
+   717	
+   718	
+   719	@dataclass
+   720	class MergeConfig:
+   721	    """Enables cross-pollination between candidates on the Pareto frontier.
+   722	
+   723	    When set, GEPA periodically attempts to merge strengths of two candidates
+   724	    that each excel on different subsets of the validation set.
+   725	    """
+   726	
+   727	    max_merge_invocations: int = 5
+   728	    merge_val_overlap_floor: int = 5
+   729	
+   730	
+   731	# --- Refiner Configuration ---
+   732	
+   733	DEFAULT_REFINER_PROMPT = """You are a refinement agent improving candidates in an optimization loop.
+   734	
+   735	## What We're Optimizing For
+   736	The overall optimization objective is:
+   737	{objective}
+   738	
+   739	This tells you what "better" means - use it to guide your improvements.
+   740	
+   741	## Domain Knowledge
+   742	{background}
+   743	
+   744	## Your Task
+   745	Given a candidate and its evaluation feedback:
+   746	1. Understand why it scored the way it did
+   747	2. Fix any errors (errors = zero score)
+   748	3. Make improvements that move toward the objective
+   749	4. Return the complete improved candidate
+   750	"""
+   751	
+   752	
+   753	@dataclass
+   754	class RefinerConfig:
+   755	    """Automatic per-evaluation candidate refinement via LLM.
+   756	
+   757	    When enabled, after each evaluation GEPA calls an LLM to propose a refined
+   758	    version of the candidate based on the evaluation feedback.  The refined
+   759	    candidate is re-evaluated, and the better of (original, refined) is kept.
+   760	
+   761	    A ``refiner_prompt`` parameter is auto-injected into seed candidates and
+   762	    co-evolved alongside the other parameters.  All non-refiner params are
+   763	    refined together as a JSON dict.
+   764	
+   765	    Set ``config.refiner = None`` to disable refinement.
+   766	    """
+   767	
+   768	    # Language model for refinement (defaults to reflection_lm if not specified)
+   769	    refiner_lm: LanguageModel | str | None = None
+   770	
+   771	    # Maximum refinement iterations per evaluation
+   772	    max_refinements: int = 1
+   773	
+   774	
+   775	# --- Component 3: Experiment Tracking Configuration ---
+   776	@dataclass
+   777	class TrackingConfig:
+   778	    """Experiment tracking and logging (W&B, MLflow, or custom logger)."""
+   779	
+   780	    logger: LoggerProtocol | None = None
+   781	    use_wandb: bool = False
+   782	    wandb_api_key: str | None = None
+   783	    wandb_init_kwargs: dict[str, Any] | None = None
+   784	    use_mlflow: bool = False
+   785	    mlflow_tracking_uri: str | None = None
+   786	    mlflow_experiment_name: str | None = None
+   787	
+   788	
+   789	@dataclass
+   790	class GEPAConfig:
+   791	    """Top-level configuration for :func:`optimize_anything`.
+   792	
+   793	    Groups all settings into nested component configs.  Sensible defaults are
+   794	    provided — most users only need to set ``engine.max_metric_calls`` and
+   795	    optionally ``reflection.reflection_lm``.
+   796	
+   797	    Example::
+   798	
+   799	        config = GEPAConfig(
+   800	            engine=EngineConfig(max_metric_calls=200, parallel=True, max_workers=16),
+   801	            reflection=ReflectionConfig(reflection_lm="openai/gpt-5.1"),
+   802	            refiner=RefinerConfig(max_refinements=2),
+   803	        )
+   804	    """
+   805	
+   806	    # Component configurations
+   807	    engine: EngineConfig = field(default_factory=EngineConfig)
+   808	    reflection: ReflectionConfig = field(default_factory=ReflectionConfig)
+   809	    tracking: TrackingConfig = field(default_factory=TrackingConfig)
+   810	
+   811	    # Use 'None' to disable these optional components
+   812	    merge: MergeConfig | None = None
+   813	    refiner: RefinerConfig | None = None
+   814	
+   815	    # Complex callbacks that aren't serializable
+   816	    stop_callbacks: StopperProtocol | Sequence[StopperProtocol] | None = None
+   817	
+   818	    def __post_init__(self):
+   819	        """Handle dicts passed in (e.g., from a JSON/YAML file)."""
+   820	        if isinstance(self.engine, dict):
+   821	            self.engine = EngineConfig(**self.engine)
+   822	        if isinstance(self.reflection, dict):
+   823	            self.reflection = ReflectionConfig(**self.reflection)
+   824	        if isinstance(self.tracking, dict):
+   825	            self.tracking = TrackingConfig(**self.tracking)
+   826	        if isinstance(self.merge, dict):
+   827	            self.merge = MergeConfig(**self.merge)
+   828	        if isinstance(self.refiner, dict):
+   829	            self.refiner = RefinerConfig(**self.refiner)
+   830	
+   831	    def to_dict(self) -> dict[str, Any]:
+   832	        """Convert config to dictionary representation."""
+   833	        return asdict(self)
+   834	
+   835	    @staticmethod
+   836	    def from_dict(d: dict[str, Any]) -> "GEPAConfig":
+   837	        """Create config from dictionary representation."""
+   838	        return GEPAConfig(**d)
+   839	
+   840	
+   841	def make_litellm_lm(model_name: str) -> LanguageModel:
+   842	    """Convert a LiteLLM model name string to a :class:`LanguageModel` callable.
+   843	
+   844	    The returned callable conforms to the ``LanguageModel`` protocol and
+   845	    accepts a plain ``str`` prompt, a ``list[dict]`` chat-messages list, or
+   846	    a multimodal messages list (with content arrays containing images).
+   847	    """
+   848	    import litellm
+   849	
+   850	    def _lm(prompt: str | list[dict[str, Any]]) -> str:
+   851	        if isinstance(prompt, str):
+   852	            messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+   853	        else:
+   854	            messages = prompt
+   855	        completion = litellm.completion(model=model_name, messages=messages)
+   856	        return completion.choices[0].message.content  # type: ignore[union-attr]
+   857	
+   858	    return _lm
+   859	
+   860	
+   861	class EvaluatorWrapper:
+   862	    """Internal wrapper that adapts a user's evaluator to GEPA's internal interface.
+   863	
+   864	    Handles: single-instance mode (omits ``example``), str-candidate unwrapping,
+   865	    kwarg filtering (incl. ``opt_state`` injection), ``oa.log()`` capture,
+   866	    optional stdout/stderr capture, and normalizing the return value to
+   867	    ``(score, output, side_info)`` regardless of what the user returns.
+   868	    """
+   869	
+   870	    def __init__(
+   871	        self,
+   872	        evaluator_fn: Callable[..., Any],
+   873	        single_instance_mode: bool,
+   874	        capture_stdio: bool = False,
+   875	        str_candidate_mode: bool = False,
+   876	        raise_on_exception: bool = True,
+   877	    ) -> None:
+   878	        # Inspect the evaluator's signature once to determine which kwargs it accepts.
+   879	        sig = inspect.signature(evaluator_fn)
+   880	        has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+   881	        if has_var_keyword:
+   882	            accepted_params = None  # accept all
+   883	        else:
+   884	            accepted_params = set(sig.parameters.keys())
+   885	
+   886	        def _filter_kwargs(kwargs: dict) -> dict:
+   887	            if accepted_params is None:
+   888	                return kwargs
+   889	            return {k: v for k, v in kwargs.items() if k in accepted_params}
+   890	
+   891	        def wrapped_evaluator(
+   892	            candidate: Candidate, example: object | None = None, **kwargs: Any
+   893	        ) -> tuple[float, Any, SideInfo]:
+   894	            # Create a fresh, shared log context for this evaluator call.
+   895	            # The same LogContext is accessible from child threads via
+   896	            # oa.get_log_context() / oa.set_log_context().
+   897	            log_ctx = LogContext()
+   898	            _set_log_context(log_ctx)
+   899	
+   900	            # Build full kwargs dict. In single-instance mode, don't forward
+   901	            # example to the evaluator at all.
+   902	            if single_instance_mode:
+   903	                all_kwargs = kwargs
+   904	            else:
+   905	                all_kwargs = {"example": example, **kwargs}
+   906	
+   907	            filtered = _filter_kwargs(all_kwargs)
+   908	
+   909	            # Unwrap candidate for str_candidate_mode
+   910	            eval_candidate: Candidate | str = candidate
+   911	            if str_candidate_mode:
+   912	                eval_candidate = candidate[_STR_CANDIDATE_KEY]
+   913	
+   914	            # Acquire per-thread stream capture from the shared manager per-call.
+   915	            # This scopes the sys.stdout/stderr replacement to only the duration
+   916	            # of evaluator execution, restoring the originals between calls.
+   917	            # Both acquire/start_capture and the evaluator call are inside the
+   918	            # same try/finally so that stream_manager.release() is always called
+   919	            # even if start_capture() raises (e.g. assertion on double-capture).
+   920	            stdout_capturer: ThreadLocalStreamCapture | None = None
+   921	            stderr_capturer: ThreadLocalStreamCapture | None = None
+   922	            try:
+   923	                if capture_stdio:
+   924	                    stdout_capturer, stderr_capturer = stream_manager.acquire()
+   925	                    stdout_capturer.start_capture()
+   926	                    stderr_capturer.start_capture()
+   927	
+   928	                result = evaluator_fn(eval_candidate, **filtered)
+   929	            except Exception as e:
+   930	                result = e  # Sentinel; handled below after cleanup
+   931	            finally:
+   932	                captured_stdout = stdout_capturer.stop_capture() if stdout_capturer else ""
+   933	                captured_stderr = stderr_capturer.stop_capture() if stderr_capturer else ""
+   934	                if capture_stdio and stdout_capturer is not None:
+   935	                    stream_manager.release()
+   936	                log_output = log_ctx.drain()
+   937	                _set_log_context(None)
+   938	
+   939	            # If evaluator raised, preserve captured diagnostics
+   940	            if isinstance(result, Exception):

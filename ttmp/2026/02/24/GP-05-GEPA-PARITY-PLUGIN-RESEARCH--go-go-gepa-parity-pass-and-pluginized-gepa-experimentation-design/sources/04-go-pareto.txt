@@ -1,0 +1,101 @@
+     1	package gepa
+     2	
+     3	import (
+     4		"math"
+     5		"sort"
+     6	)
+     7	
+     8	// Dominates returns true if a dominates b (higher is better).
+     9	// A dominates B if, for all objectives, A >= B, and for at least one, A > B.
+    10	// Missing objectives are treated as -Inf (so they generally lose).
+    11	func Dominates(a, b ObjectiveScores) bool {
+    12		if len(a) == 0 && len(b) == 0 {
+    13			return false
+    14		}
+    15		allKeys := map[string]struct{}{}
+    16		for k := range a {
+    17			allKeys[k] = struct{}{}
+    18		}
+    19		for k := range b {
+    20			allKeys[k] = struct{}{}
+    21		}
+    22	
+    23		strict := false
+    24		for k := range allKeys {
+    25			av, aok := a[k]
+    26			bv, bok := b[k]
+    27			if !aok {
+    28				av = math.Inf(-1)
+    29			}
+    30			if !bok {
+    31				bv = math.Inf(-1)
+    32			}
+    33			if av < bv {
+    34				return false
+    35			}
+    36			if av > bv {
+    37				strict = true
+    38			}
+    39		}
+    40		return strict
+    41	}
+    42	
+    43	// ParetoFront returns the indices of the non-dominated points.
+    44	// Complexity is O(n^2) which is fine for small candidate pools.
+    45	func ParetoFront(points []ObjectiveScores) []int {
+    46		n := len(points)
+    47		if n == 0 {
+    48			return nil
+    49		}
+    50		nd := make([]bool, n)
+    51		for i := range nd {
+    52			nd[i] = true
+    53		}
+    54		for i := 0; i < n; i++ {
+    55			if !nd[i] {
+    56				continue
+    57			}
+    58			for j := 0; j < n; j++ {
+    59				if i == j || !nd[i] {
+    60					continue
+    61				}
+    62				if Dominates(points[j], points[i]) {
+    63					nd[i] = false
+    64					break
+    65				}
+    66			}
+    67		}
+    68		out := make([]int, 0, n)
+    69		for i := 0; i < n; i++ {
+    70			if nd[i] {
+    71				out = append(out, i)
+    72			}
+    73		}
+    74		return out
+    75	}
+    76	
+    77	// TopKByScore returns the indices of the top-k items by score (descending).
+    78	func TopKByScore(scores []float64, k int) []int {
+    79		if k <= 0 {
+    80			return nil
+    81		}
+    82		type pair struct {
+    83			I int
+    84			S float64
+    85		}
+    86		ps := make([]pair, 0, len(scores))
+    87		for i, s := range scores {
+    88			ps = append(ps, pair{I: i, S: s})
+    89		}
+    90		sort.Slice(ps, func(i, j int) bool {
+    91			return ps[i].S > ps[j].S
+    92		})
+    93		if k > len(ps) {
+    94			k = len(ps)
+    95		}
+    96		out := make([]int, 0, k)
+    97		for i := 0; i < k; i++ {
+    98			out = append(out, ps[i].I)
+    99		}
+   100		return out
+   101	}

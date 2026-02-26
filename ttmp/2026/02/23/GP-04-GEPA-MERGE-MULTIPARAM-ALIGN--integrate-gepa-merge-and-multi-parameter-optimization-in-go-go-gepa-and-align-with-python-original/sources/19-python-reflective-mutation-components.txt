@@ -1,0 +1,291 @@
+    70	        self.custom_candidate_proposer = custom_candidate_proposer
+    71	        self.callbacks = callbacks
+    72	
+    73	        self.reflection_prompt_template = reflection_prompt_template
+    74	        # Track parameters for which we've already logged missing template warnings
+    75	        self._missing_template_warnings: set[str] = set()
+    76	
+    77	        if isinstance(reflection_prompt_template, dict):
+    78	            for _param_name, template in reflection_prompt_template.items():
+    79	                InstructionProposalSignature.validate_prompt_template(template)
+    80	        else:
+    81	            InstructionProposalSignature.validate_prompt_template(reflection_prompt_template)
+    82	
+    83	        if self.skip_perfect_score and self.perfect_score is None:
+    84	            raise ValueError(
+    85	                "perfect_score must be provided when skip_perfect_score is True. "
+    86	                "If you do not have a perfect target score, set skip_perfect_score=False."
+    87	            )
+    88	
+    89	    def propose_new_texts(
+    90	        self,
+    91	        candidate: dict[str, str],
+    92	        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
+    93	        components_to_update: list[str],
+    94	    ) -> dict[str, str]:
+    95	        if self.adapter.propose_new_texts is not None:
+    96	            return self.adapter.propose_new_texts(candidate, reflective_dataset, components_to_update)
+    97	
+    98	        if self.custom_candidate_proposer is not None:
+    99	            return self.custom_candidate_proposer(candidate, reflective_dataset, components_to_update)
+   100	
+   101	        if self.reflection_lm is None:
+   102	            raise ValueError("reflection_lm must be provided when adapter.propose_new_texts is None.")
+   103	
+   104	        new_texts: dict[str, str] = {}
+   105	        for name in components_to_update:
+   106	            # Gracefully handle cases where a selected component has no data in reflective_dataset
+   107	            if name not in reflective_dataset or not reflective_dataset.get(name):
+   108	                self.logger.log(f"Component '{name}' is not in reflective dataset. Skipping.")
+   109	                continue
+   110	
+   111	            base_instruction = candidate[name]
+   112	            dataset_with_feedback = reflective_dataset[name]
+   113	
+   114	            # Determine which prompt template to use for this parameter
+   115	            prompt_template = None
+   116	            if isinstance(self.reflection_prompt_template, dict):
+   117	                # Use parameter-specific template if available
+   118	                prompt_template = self.reflection_prompt_template.get(name)
+   119	                if prompt_template is None and name not in self._missing_template_warnings:
+   120	                    self.logger.log(
+   121	                        f"No reflection_prompt_template found for parameter '{name}'. Using default template."
+   122	                    )
+   123	                    self._missing_template_warnings.add(name)
+   124	            else:
+   125	                # Use the single template for all parameters
+   126	                prompt_template = self.reflection_prompt_template
+   127	
+   128	            new_texts[name] = InstructionProposalSignature.run(
+   129	                lm=self.reflection_lm,
+   130	                input_dict={
+   131	                    "current_instruction_doc": base_instruction,
+   132	                    "dataset_with_feedback": dataset_with_feedback,
+   133	                    "prompt_template": prompt_template,
+   134	                },
+   135	            )["new_instruction"]
+   136	        return new_texts
+   137	
+   138	    def propose(self, state: GEPAState) -> CandidateProposal | None:
+   139	        i = state.i + 1
+   140	
+   141	        curr_prog_id = self.candidate_selector.select_candidate_idx(state)
+   142	        curr_prog = state.program_candidates[curr_prog_id]
+   143	        state.full_program_trace[-1]["selected_program_candidate"] = curr_prog_id
+   144	        self.logger.log(
+   145	            f"Iteration {i}: Selected program {curr_prog_id} score: {state.program_full_scores_val_set[curr_prog_id]}"
+   146	        )
+   147	
+   148	        # Notify candidate selected
+   149	        notify_callbacks(
+   150	            self.callbacks,
+   151	            "on_candidate_selected",
+   152	            CandidateSelectedEvent(
+   153	                iteration=i,
+   154	                candidate_idx=curr_prog_id,
+   155	                candidate=curr_prog,
+   156	                score=state.program_full_scores_val_set[curr_prog_id],
+   157	            ),
+   158	        )
+   159	
+   160	        self.experiment_tracker.log_metrics(
+   161	            {"iteration": i, "selected_program_candidate": curr_prog_id, "total_metric_calls": state.total_num_evals},
+   162	            step=i,
+   163	        )
+   164	
+   165	        subsample_ids = self.batch_sampler.next_minibatch_ids(self.trainset, state)
+   166	        state.full_program_trace[-1]["subsample_ids"] = subsample_ids
+   167	        minibatch = self.trainset.fetch(subsample_ids)
+   168	
+   169	        # Notify minibatch sampled
+   170	        notify_callbacks(
+   171	            self.callbacks,
+   172	            "on_minibatch_sampled",
+   173	            MinibatchSampledEvent(
+   174	                iteration=i,
+   175	                minibatch_ids=subsample_ids,
+   176	                trainset_size=len(self.trainset),
+   177	            ),
+   178	        )
+   179	
+   180	        # 1) Evaluate current program with traces
+   181	        # Note: We don't use cache for capture_traces=True evaluations since we need fresh traces for reflection
+   182	        curr_parent_ids = [p for p in state.parent_program_for_candidate[curr_prog_id] if p is not None]
+   183	        is_seed_candidate = curr_prog_id == 0
+   184	        notify_callbacks(
+   185	            self.callbacks,
+   186	            "on_evaluation_start",
+   187	            EvaluationStartEvent(
+   188	                iteration=i,
+   189	                candidate_idx=curr_prog_id,
+   190	                batch_size=len(minibatch),
+   191	                capture_traces=True,
+   192	                parent_ids=curr_parent_ids,
+   193	                inputs=minibatch,
+   194	                is_seed_candidate=is_seed_candidate,
+   195	            ),
+   196	        )
+   197	        eval_curr = self.adapter.evaluate(minibatch, curr_prog, capture_traces=True)
+   198	        state.increment_evals(len(subsample_ids))
+   199	        state.full_program_trace[-1]["subsample_scores"] = eval_curr.scores
+   200	        notify_callbacks(
+   201	            self.callbacks,
+   202	            "on_evaluation_end",
+   203	            EvaluationEndEvent(
+   204	                iteration=i,
+   205	                candidate_idx=curr_prog_id,
+   206	                scores=eval_curr.scores,
+   207	                has_trajectories=bool(eval_curr.trajectories),
+   208	                parent_ids=curr_parent_ids,
+   209	                outputs=eval_curr.outputs,
+   210	                trajectories=eval_curr.trajectories,
+   211	                objective_scores=eval_curr.objective_scores,
+   212	                is_seed_candidate=is_seed_candidate,
+   213	            ),
+   214	        )
+   215	
+   216	        # Update cache with current program evaluation results (for future reuse when capture_traces=False)
+   217	        if state.evaluation_cache is not None:
+   218	            objective_scores_list = list(eval_curr.objective_scores) if eval_curr.objective_scores else None
+   219	            state.evaluation_cache.put_batch(
+   220	                curr_prog, subsample_ids, eval_curr.outputs, eval_curr.scores, objective_scores_list
+   221	            )
+   222	
+   223	        if not eval_curr.trajectories or len(eval_curr.trajectories) == 0:
+   224	            self.logger.log(f"Iteration {i}: No trajectories captured. Skipping.")
+   225	            notify_callbacks(
+   226	                self.callbacks,
+   227	                "on_evaluation_skipped",
+   228	                EvaluationSkippedEvent(
+   229	                    iteration=i,
+   230	                    candidate_idx=curr_prog_id,
+   231	                    reason="no_trajectories",
+   232	                    scores=eval_curr.scores,
+   233	                    is_seed_candidate=is_seed_candidate,
+   234	                ),
+   235	            )
+   236	            return None
+   237	
+   238	        if (
+   239	            self.skip_perfect_score
+   240	            and self.perfect_score is not None
+   241	            and all(s is not None and s >= self.perfect_score for s in eval_curr.scores)
+   242	        ):
+   243	            self.logger.log(f"Iteration {i}: All subsample scores perfect. Skipping.")
+   244	            notify_callbacks(
+   245	                self.callbacks,
+   246	                "on_evaluation_skipped",
+   247	                EvaluationSkippedEvent(
+   248	                    iteration=i,
+   249	                    candidate_idx=curr_prog_id,
+   250	                    reason="all_scores_perfect",
+   251	                    scores=eval_curr.scores,
+   252	                    is_seed_candidate=is_seed_candidate,
+   253	                ),
+   254	            )
+   255	            return None
+   256	
+   257	        self.experiment_tracker.log_metrics(
+   258	            {"subsample_score": sum(eval_curr.scores), "total_metric_calls": state.total_num_evals}, step=i
+   259	        )
+   260	
+   261	        # 2) Decide which predictors to update
+   262	        predictor_names_to_update = self.module_selector(
+   263	            state, eval_curr.trajectories, eval_curr.scores, curr_prog_id, curr_prog
+   264	        )
+   265	
+   266	        # 3) Build reflective dataset and propose texts
+   267	        try:
+   268	            reflective_dataset = self.adapter.make_reflective_dataset(curr_prog, eval_curr, predictor_names_to_update)
+   269	
+   270	            # Convert to concrete types for callback
+   271	            reflective_dataset_concrete: dict[str, list[dict[str, Any]]] = {
+   272	                k: [dict(item) for item in v] for k, v in reflective_dataset.items()
+   273	            }
+   274	
+   275	            # Notify reflective dataset built
+   276	            notify_callbacks(
+   277	                self.callbacks,
+   278	                "on_reflective_dataset_built",
+   279	                ReflectiveDatasetBuiltEvent(
+   280	                    iteration=i,
+   281	                    candidate_idx=curr_prog_id,
+   282	                    components=predictor_names_to_update,
+   283	                    dataset=reflective_dataset_concrete,
+   284	                ),
+   285	            )
+   286	
+   287	            # Notify proposal start
+   288	            notify_callbacks(
+   289	                self.callbacks,
+   290	                "on_proposal_start",
+   291	                ProposalStartEvent(
+   292	                    iteration=i,
+   293	                    parent_candidate=curr_prog,
+   294	                    components=predictor_names_to_update,
+   295	                    reflective_dataset=reflective_dataset_concrete,
+   296	                ),
+   297	            )
+   298	
+   299	            new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+   300	
+   301	            # Notify proposal end
+   302	            notify_callbacks(
+   303	                self.callbacks,
+   304	                "on_proposal_end",
+   305	                ProposalEndEvent(
+   306	                    iteration=i,
+   307	                    new_instructions=new_texts,
+   308	                ),
+   309	            )
+   310	
+   311	
+   312	            for pname, text in new_texts.items():
+   313	                self.logger.log(f"Iteration {i}: Proposed new text for {pname}: {text}")
+   314	            self.experiment_tracker.log_metrics(
+   315	                {f"new_instruction_{pname}": text for pname, text in new_texts.items()}, step=i
+   316	            )
+   317	        except Exception as e:
+   318	            self.logger.log(f"Iteration {i}: Exception during reflection/proposal: {e}")
+   319	            import traceback
+   320	
+   321	            self.logger.log(traceback.format_exc())
+   322	            return None
+   323	
+   324	        # 4) Create candidate, evaluate on same minibatch (no need to capture traces)
+   325	        new_candidate = curr_prog.copy()
+   326	        for pname, text in new_texts.items():
+   327	            assert pname in new_candidate, f"{pname} missing in candidate"
+   328	            new_candidate[pname] = text
+   329	
+   330	        def evaluator(b, c):
+   331	            r = self.adapter.evaluate(b, c, capture_traces=False)
+   332	            return r.outputs, r.scores, list(r.objective_scores) if r.objective_scores else None
+   333	
+   334	        # Evaluate new candidate (not yet in state)
+   335	        notify_callbacks(
+   336	            self.callbacks,
+   337	            "on_evaluation_start",
+   338	            EvaluationStartEvent(
+   339	                iteration=i,
+   340	                candidate_idx=None,
+   341	                batch_size=len(minibatch),
+   342	                capture_traces=False,
+   343	                parent_ids=[curr_prog_id],
+   344	                inputs=minibatch,
+   345	                is_seed_candidate=False,
+   346	            ),
+   347	        )
+   348	
+   349	        outputs_by_id, scores_by_id, objective_by_id, actual_evals_count = state.cached_evaluate_full(
+   350	            new_candidate, subsample_ids, self.trainset.fetch, evaluator
+   351	        )
+   352	        new_scores = [scores_by_id[eid] for eid in subsample_ids]
+   353	        outputs = [outputs_by_id[eid] for eid in subsample_ids]
+   354	
+   355	        notify_callbacks(
+   356	            self.callbacks,
+   357	            "on_evaluation_end",
+   358	            EvaluationEndEvent(
+   359	                iteration=i,
+   360	                candidate_idx=None,

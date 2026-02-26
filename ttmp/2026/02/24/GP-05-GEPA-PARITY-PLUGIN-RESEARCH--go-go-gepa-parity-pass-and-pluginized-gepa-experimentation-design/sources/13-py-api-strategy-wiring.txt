@@ -1,0 +1,149 @@
+   260	        def _reflection_lm(prompt: str | list[dict[str, str]]) -> str:
+   261	            if isinstance(prompt, str):
+   262	                completion = litellm.completion(
+   263	                    model=reflection_lm_name, messages=[{"role": "user", "content": prompt}]
+   264	                )
+   265	            else:
+   266	                completion = litellm.completion(model=reflection_lm_name, messages=prompt)
+   267	            return completion.choices[0].message.content  # type: ignore
+   268	
+   269	        reflection_lm_callable = _reflection_lm
+   270	    else:
+   271	        reflection_lm_callable = reflection_lm
+   272	
+   273	    if logger is None:
+   274	        logger = StdOutLogger()
+   275	
+   276	    rng = random.Random(seed)
+   277	
+   278	    candidate_selector: CandidateSelector
+   279	    if isinstance(candidate_selection_strategy, str):
+   280	        factories = {
+   281	            "pareto": lambda: ParetoCandidateSelector(rng=rng),
+   282	            "current_best": lambda: CurrentBestCandidateSelector(),
+   283	            "epsilon_greedy": lambda: EpsilonGreedyCandidateSelector(epsilon=0.1, rng=rng),
+   284	        }
+   285	
+   286	        try:
+   287	            candidate_selector = factories[candidate_selection_strategy]()
+   288	        except KeyError as exc:
+   289	            raise ValueError(
+   290	                f"Unknown candidate_selector strategy: {candidate_selection_strategy}. "
+   291	                "Supported strategies: 'pareto', 'current_best', 'epsilon_greedy'"
+   292	            ) from exc
+   293	    elif isinstance(candidate_selection_strategy, CandidateSelector):
+   294	        candidate_selector = candidate_selection_strategy
+   295	    else:
+   296	        raise TypeError(
+   297	            "candidate_selection_strategy must be a supported string strategy or an instance of CandidateSelector."
+   298	        )
+   299	
+   300	    if val_evaluation_policy is None or val_evaluation_policy == "full_eval":
+   301	        val_evaluation_policy = FullEvaluationPolicy()
+   302	    elif not isinstance(val_evaluation_policy, EvaluationPolicy):
+   303	        raise ValueError(
+   304	            f"val_evaluation_policy should be one of 'full_eval' or an instance of EvaluationPolicy, but got {type(val_evaluation_policy)}"
+   305	        )
+   306	
+   307	    if isinstance(module_selector, str):
+   308	        module_selector_cls = {
+   309	            "round_robin": RoundRobinReflectionComponentSelector,
+   310	            "all": AllReflectionComponentSelector,
+   311	        }.get(module_selector)
+   312	
+   313	        assert module_selector_cls is not None, (
+   314	            f"Unknown module_selector strategy: {module_selector}. Supported strategies: 'round_robin', 'all'"
+   315	        )
+   316	
+   317	        module_selector_instance: ReflectionComponentSelector = module_selector_cls()
+   318	    else:
+   319	        module_selector_instance = module_selector
+   320	
+   321	    if batch_sampler == "epoch_shuffled":
+   322	        batch_sampler = EpochShuffledBatchSampler(minibatch_size=reflection_minibatch_size or 3, rng=rng)
+   323	    else:
+   324	        assert reflection_minibatch_size is None, (
+   325	            "reflection_minibatch_size only accepted if batch_sampler is 'epoch_shuffled'"
+   326	        )
+   327	
+   328	    experiment_tracker = create_experiment_tracker(
+   329	        use_wandb=use_wandb,
+   330	        wandb_api_key=wandb_api_key,
+   331	        wandb_init_kwargs=wandb_init_kwargs,
+   332	        use_mlflow=use_mlflow,
+   333	        mlflow_tracking_uri=mlflow_tracking_uri,
+   334	        mlflow_experiment_name=mlflow_experiment_name,
+   335	    )
+   336	
+   337	    if reflection_prompt_template is not None:
+   338	        assert not (adapter is not None and getattr(adapter, "propose_new_texts", None) is not None), (
+   339	            f"Adapter {adapter!s} provides its own propose_new_texts method; reflection_prompt_template will be ignored. "
+   340	            "Set reflection_prompt_template to None."
+   341	        )
+   342	
+   343	    # Create evaluation cache if enabled
+   344	    evaluation_cache: EvaluationCache[RolloutOutput, DataId] | None = None
+   345	    if cache_evaluation:
+   346	        evaluation_cache = EvaluationCache[RolloutOutput, DataId]()
+   347	
+   348	    reflective_proposer = ReflectiveMutationProposer(
+   349	        logger=logger,
+   350	        trainset=train_loader,
+   351	        adapter=active_adapter,
+   352	        candidate_selector=candidate_selector,
+   353	        module_selector=module_selector_instance,
+   354	        batch_sampler=batch_sampler,
+   355	        perfect_score=perfect_score,
+   356	        skip_perfect_score=skip_perfect_score,
+   357	        experiment_tracker=experiment_tracker,
+   358	        reflection_lm=reflection_lm_callable,
+   359	        reflection_prompt_template=reflection_prompt_template,
+   360	        custom_candidate_proposer=custom_candidate_proposer,
+   361	        callbacks=callbacks,
+   362	    )
+   363	
+   364	    def evaluator_fn(
+   365	        inputs: list[DataInst], prog: dict[str, str]
+   366	    ) -> tuple[list[RolloutOutput], list[float], Sequence[dict[str, float]] | None]:
+   367	        eval_out = active_adapter.evaluate(inputs, prog, capture_traces=False)
+   368	        return eval_out.outputs, eval_out.scores, eval_out.objective_scores
+   369	
+   370	    merge_proposer: MergeProposer | None = None
+   371	    if use_merge:
+   372	        merge_proposer = MergeProposer(
+   373	            logger=logger,
+   374	            valset=val_loader,
+   375	            evaluator=evaluator_fn,
+   376	            use_merge=use_merge,
+   377	            max_merge_invocations=max_merge_invocations,
+   378	            rng=rng,
+   379	            val_overlap_floor=merge_val_overlap_floor,
+   380	            callbacks=callbacks,
+   381	        )
+   382	
+   383	    engine = GEPAEngine(
+   384	        adapter=active_adapter,
+   385	        run_dir=run_dir,
+   386	        valset=val_loader,
+   387	        seed_candidate=seed_candidate,
+   388	        perfect_score=perfect_score,
+   389	        seed=seed,
+   390	        reflective_proposer=reflective_proposer,
+   391	        merge_proposer=merge_proposer,
+   392	        frontier_type=frontier_type,
+   393	        logger=logger,
+   394	        experiment_tracker=experiment_tracker,
+   395	        callbacks=callbacks,
+   396	        track_best_outputs=track_best_outputs,
+   397	        display_progress_bar=display_progress_bar,
+   398	        raise_on_exception=raise_on_exception,
+   399	        stop_callback=stop_callback,
+   400	        val_evaluation_policy=val_evaluation_policy,
+   401	        use_cloudpickle=use_cloudpickle,
+   402	        evaluation_cache=evaluation_cache,
+   403	    )
+   404	
+   405	    with experiment_tracker:
+   406	        state = engine.run()
+   407	
+   408	    return GEPAResult.from_state(state, run_dir=run_dir, seed=seed)

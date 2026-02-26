@@ -1,0 +1,241 @@
+   140		// Reflection LLM engine (Go side).
+   141		engine, err := factory.NewEngineFromParsedValues(parsedValues)
+   142		if err != nil {
+   143			return errors.Wrap(err, "failed to create reflection engine from parsed values")
+   144		}
+   145	
+   146		absScript, err := filepath.Abs(s.ScriptPath)
+   147		if err != nil {
+   148			return err
+   149		}
+   150		scriptRoot := filepath.Dir(absScript)
+   151	
+   152		// Load JS plugin.
+   153		jsrt, err := newJSRuntime(scriptRoot)
+   154		if err != nil {
+   155			return err
+   156		}
+   157		defer jsrt.Close()
+   158	
+   159		hostContext := map[string]any{
+   160			"app":           "gepa-runner",
+   161			"scriptPath":    filepath.ToSlash(absScript),
+   162			"scriptRoot":    filepath.ToSlash(scriptRoot),
+   163			"profile":       profile,
+   164			"engineOptions": engineOptions,
+   165		}
+   166		plugin, meta, err := loadOptimizerPlugin(jsrt, absScript, hostContext)
+   167		if err != nil {
+   168			return err
+   169		}
+   170		log.Info().Str("plugin_id", meta.ID).Str("plugin_name", meta.Name).Msg("Loaded optimizer plugin")
+   171	
+   172		var seedCandidate gepaopt.Candidate
+   173		seedTextForRecord := ""
+   174		if strings.TrimSpace(s.SeedCandidate) != "" {
+   175			cand, err := loadSeedCandidateFile(s.SeedCandidate)
+   176			if err != nil {
+   177				return err
+   178			}
+   179			if len(cand) == 0 {
+   180				return fmt.Errorf("seed candidate is empty (check --seed-candidate)")
+   181			}
+   182			seedCandidate = cand
+   183			if p, ok := cand["prompt"]; ok {
+   184				seedTextForRecord = strings.TrimSpace(p)
+   185			}
+   186			if seedTextForRecord == "" {
+   187				blob, _ := json.Marshal(cand)
+   188				seedTextForRecord = string(blob)
+   189			}
+   190		} else {
+   191			seedText, err := resolveSeedText(s.Seed, s.SeedFile)
+   192			if err != nil {
+   193				return err
+   194			}
+   195			if strings.TrimSpace(seedText) != "" {
+   196				seedCandidate = gepaopt.Candidate{"prompt": seedText}
+   197				seedTextForRecord = seedText
+   198			} else if s.Seedless {
+   199				cand, err := plugin.InitialCandidate(pluginEvaluateOptions{
+   200					Profile:       profile,
+   201					EngineOptions: engineOptions,
+   202				})
+   203				if err != nil {
+   204					return err
+   205				}
+   206				if len(cand) == 0 {
+   207					return fmt.Errorf("seedless mode requested but plugin returned empty initial candidate")
+   208				}
+   209				seedCandidate = cand
+   210				if p, ok := cand["prompt"]; ok {
+   211					seedTextForRecord = strings.TrimSpace(p)
+   212				}
+   213				if seedTextForRecord == "" {
+   214					blob, _ := json.Marshal(cand)
+   215					seedTextForRecord = string(blob)
+   216				}
+   217			} else {
+   218				return fmt.Errorf("seed prompt is empty (use --seed, --seed-file, --seed-candidate, or --seedless with plugin initialCandidate())")
+   219			}
+   220		}
+   221	
+   222		// Load dataset.
+   223		var examples []any
+   224		if strings.TrimSpace(s.DatasetPath) != "" {
+   225			examples, err = loadDataset(s.DatasetPath)
+   226			if err != nil {
+   227				return err
+   228			}
+   229		} else {
+   230			examples, err = plugin.Dataset()
+   231			if err != nil {
+   232				return err
+   233			}
+   234		}
+   235		if len(examples) == 0 {
+   236			return fmt.Errorf("dataset is empty")
+   237		}
+   238	
+   239		evalFn := func(ctx context.Context, cand gepaopt.Candidate, exampleIndex int, example any) (gepaopt.EvalResult, error) {
+   240			return plugin.Evaluate(cand, exampleIndex, example, pluginEvaluateOptions{
+   241				Profile:       profile,
+   242				EngineOptions: engineOptions,
+   243			})
+   244		}
+   245	
+   246		cfg := gepaopt.Config{
+   247			MaxEvalCalls:     s.MaxEvalCalls,
+   248			BatchSize:        s.BatchSize,
+   249			MergeProbability: s.MergeProb,
+   250			MergeScheduler:   strings.TrimSpace(s.MergeScheduler),
+   251			MaxMergesDue:     s.MaxMergesDue,
+   252			Objective:        s.Objective,
+   253			MaxSideInfoChars: s.MaxSideInfoChars,
+   254		}
+   255		if strings.TrimSpace(s.OptimizableKeys) != "" {
+   256			parts := strings.Split(s.OptimizableKeys, ",")
+   257			for _, p := range parts {
+   258				k := strings.TrimSpace(p)
+   259				if k != "" {
+   260					cfg.OptimizableKeys = append(cfg.OptimizableKeys, k)
+   261				}
+   262			}
+   263		}
+   264		cfg.ComponentSelector = strings.TrimSpace(s.ComponentSelector)
+   265	
+   266		reflector := &gepaopt.Reflector{
+   267			Engine:        engine,
+   268			Objective:     cfg.Objective,
+   269			System:        cfg.ReflectionSystemPrompt,
+   270			Template:      cfg.ReflectionPromptTemplate,
+   271			MergeSystem:   cfg.MergeSystemPrompt,
+   272			MergeTemplate: cfg.MergePromptTemplate,
+   273		}
+   274	
+   275		opt := gepaopt.NewOptimizer(cfg, evalFn, reflector)
+   276		if plugin.HasMerge() {
+   277			opt.SetMergeFunc(func(ctx context.Context, in gepaopt.MergeInput) (string, string, error) {
+   278				return plugin.Merge(in, pluginEvaluateOptions{
+   279					Profile:       profile,
+   280					EngineOptions: engineOptions,
+   281				})
+   282			})
+   283		}
+   284		if plugin.HasSelectComponents() {
+   285			opt.SetComponentSelectorFunc(func(ctx context.Context, in gepaopt.ComponentSelectionInput) ([]string, error) {
+   286				return plugin.SelectComponents(in, pluginEvaluateOptions{
+   287					Profile:       profile,
+   288					EngineOptions: engineOptions,
+   289				})
+   290			})
+   291		}
+   292		if plugin.HasComponentSideInfo() {
+   293			opt.SetSideInfoFunc(func(ctx context.Context, in gepaopt.SideInfoInput) (string, error) {
+   294				return plugin.ComponentSideInfo(in, pluginEvaluateOptions{
+   295					Profile:       profile,
+   296					EngineOptions: engineOptions,
+   297				})
+   298			})
+   299		}
+   300		if s.ShowEvents {
+   301			opt.SetEventHook(func(event gepaopt.OptimizerEvent) {
+   302				fmt.Fprintf(
+   303					w,
+   304					"[event] iter=%d type=%s op=%s parent=%d parent2=%d child=%d accepted=%v baseline=%.6f child=%.6f keys=%s\n",
+   305					event.Iteration,
+   306					event.Type,
+   307					event.Operation,
+   308					event.ParentID,
+   309					event.Parent2ID,
+   310					event.ChildID,
+   311					event.Accepted,
+   312					event.BaselineScore,
+   313					event.ChildScore,
+   314					strings.Join(event.UpdatedKeys, ","),
+   315				)
+   316			})
+   317		}
+   318	
+   319		var recorder *runRecorder
+   320		if s.Record {
+   321			recordDB := strings.TrimSpace(s.RecordDB)
+   322			if recordDB == "" {
+   323				recordDB = ".gepa-runner/runs.sqlite"
+   324			}
+   325			recorder, err = newRunRecorder(runRecorderConfig{
+   326				DBPath:      recordDB,
+   327				Mode:        "optimize",
+   328				PluginID:    meta.ID,
+   329				PluginName:  meta.Name,
+   330				Profile:     profile,
+   331				DatasetSize: len(examples),
+   332				Objective:   s.Objective,
+   333				MaxEvals:    s.MaxEvalCalls,
+   334				BatchSize:   s.BatchSize,
+   335				SeedPrompt:  seedTextForRecord,
+   336			})
+   337			if err != nil {
+   338				return errors.Wrap(err, "failed to create run recorder")
+   339			}
+   340		}
+   341		finalizeRun := func(runErr error) error {
+   342			if recorder == nil {
+   343				return runErr
+   344			}
+   345			closeErr := recorder.Close(runErr == nil, runErr)
+   346			if runErr != nil {
+   347				return runErr
+   348			}
+   349			return closeErr
+   350		}
+   351	
+   352		res, err := opt.Optimize(ctx, seedCandidate, examples)
+   353		if err != nil {
+   354			return finalizeRun(err)
+   355		}
+   356		if recorder != nil {
+   357			if err := recorder.RecordOptimizeResult(res); err != nil {
+   358				return finalizeRun(err)
+   359			}
+   360		}
+   361	
+   362		// Output summary.
+   363		fmt.Fprintf(w, "Plugin: %s (%s)\n", meta.Name, meta.ID)
+   364		fmt.Fprintf(w, "Dataset: %d examples\n", len(examples))
+   365		fmt.Fprintf(w, "Calls used: %d / %d\n", res.CallsUsed, s.MaxEvalCalls)
+   366		fmt.Fprintf(w, "Best mean score (over cached evals): %.6f (n=%d)\n", res.BestStats.MeanScore, res.BestStats.N)
+   367	
+   368		bestPrompt, hasPrompt := res.BestCandidate["prompt"]
+   369		if strings.TrimSpace(s.OutPrompt) != "" {
+   370			if !hasPrompt {
+   371				return finalizeRun(fmt.Errorf("best candidate does not contain a 'prompt' key (use --out-report to capture the full candidate)"))
+   372			}
+   373			if err := os.WriteFile(s.OutPrompt, []byte(bestPrompt), 0o644); err != nil {
+   374				return finalizeRun(errors.Wrap(err, "failed to write out prompt"))
+   375			}
+   376			fmt.Fprintf(w, "Wrote best prompt to: %s\n", s.OutPrompt)
+   377		} else {
+   378			fmt.Fprintln(w, "\n=== Best Prompt ===")
+   379			if hasPrompt {
+   380				fmt.Fprintln(w, bestPrompt)

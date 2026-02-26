@@ -1,0 +1,240 @@
+     1	package geppetto
+     2	
+     3	import (
+     4		"fmt"
+     5		"math"
+     6		"strings"
+     7	
+     8		"github.com/dop251/goja"
+     9	)
+    10	
+    11	const extractorPluginAPIVersion = "cozo.extractor/v1"
+    12	const optimizerPluginAPIVersion = "gepa.optimizer/v1"
+    13	
+    14	func (m *module) pluginsLoader(vm *goja.Runtime, moduleObj *goja.Object) {
+    15		exports := moduleObj.Get("exports").(*goja.Object)
+    16		mustSet := func(key string, v any) {
+    17			if err := exports.Set(key, v); err != nil {
+    18				panic(vm.NewGoError(fmt.Errorf("set %s: %w", key, err)))
+    19			}
+    20		}
+    21	
+    22		mustSet("EXTRACTOR_PLUGIN_API_VERSION", extractorPluginAPIVersion)
+    23		mustSet("defineExtractorPlugin", func(call goja.FunctionCall) goja.Value {
+    24			descriptor := call.Argument(0)
+    25			if descriptor == nil || goja.IsUndefined(descriptor) || goja.IsNull(descriptor) {
+    26				panic(vm.NewTypeError("plugin descriptor must be an object"))
+    27			}
+    28			descriptorObj := descriptor.ToObject(vm)
+    29			if descriptorObj == nil || descriptorObj.ClassName() != "Object" {
+    30				panic(vm.NewTypeError("plugin descriptor must be an object"))
+    31			}
+    32	
+    33			apiVersion := readStringField(vm, descriptorObj, "apiVersion", false)
+    34			if apiVersion == "" {
+    35				apiVersion = extractorPluginAPIVersion
+    36			}
+    37			if apiVersion != extractorPluginAPIVersion {
+    38				panic(vm.NewTypeError(
+    39					"unsupported plugin descriptor apiVersion %q (expected %q)",
+    40					apiVersion, extractorPluginAPIVersion,
+    41				))
+    42			}
+    43	
+    44			kind := readStringField(vm, descriptorObj, "kind", false)
+    45			if kind == "" {
+    46				kind = "extractor"
+    47			}
+    48			if kind != "extractor" {
+    49				panic(vm.NewTypeError("plugin descriptor kind must be %q, got %q", "extractor", kind))
+    50			}
+    51	
+    52			id := readStringField(vm, descriptorObj, "id", true)
+    53			name := readStringField(vm, descriptorObj, "name", true)
+    54	
+    55			createVal := descriptorObj.Get("create")
+    56			if _, ok := goja.AssertFunction(createVal); !ok {
+    57				panic(vm.NewTypeError("plugin descriptor create must be a function"))
+    58			}
+    59	
+    60			out := vm.NewObject()
+    61			_ = out.Set("apiVersion", apiVersion)
+    62			_ = out.Set("kind", kind)
+    63			_ = out.Set("id", id)
+    64			_ = out.Set("name", name)
+    65			_ = out.Set("create", createVal)
+    66	
+    67			return freezeObject(vm, out)
+    68		})
+    69	
+    70		mustSet("wrapExtractorRun", func(call goja.FunctionCall) goja.Value {
+    71			runImplVal := call.Argument(0)
+    72			runImpl, ok := goja.AssertFunction(runImplVal)
+    73			if !ok {
+    74				panic(vm.NewTypeError("plugin run must be a function"))
+    75			}
+    76	
+    77			return vm.ToValue(func(call goja.FunctionCall) goja.Value {
+    78				canonicalInput := canonicalizePluginRunInput(vm, call.Argument(0))
+    79				options := normalizeRunOptions(vm, call.Argument(1))
+    80				ret, err := runImpl(goja.Undefined(), canonicalInput, options)
+    81				if err != nil {
+    82					panic(err)
+    83				}
+    84				return ret
+    85			})
+    86		})
+    87	
+    88		mustSet("OPTIMIZER_PLUGIN_API_VERSION", optimizerPluginAPIVersion)
+    89		mustSet("defineOptimizerPlugin", func(call goja.FunctionCall) goja.Value {
+    90			descriptor := call.Argument(0)
+    91			if descriptor == nil || goja.IsUndefined(descriptor) || goja.IsNull(descriptor) {
+    92				panic(vm.NewTypeError("plugin descriptor must be an object"))
+    93			}
+    94			descriptorObj := descriptor.ToObject(vm)
+    95			if descriptorObj == nil || descriptorObj.ClassName() != "Object" {
+    96				panic(vm.NewTypeError("plugin descriptor must be an object"))
+    97			}
+    98	
+    99			apiVersion := readStringField(vm, descriptorObj, "apiVersion", false)
+   100			if apiVersion == "" {
+   101				apiVersion = optimizerPluginAPIVersion
+   102			}
+   103			if apiVersion != optimizerPluginAPIVersion {
+   104				panic(vm.NewTypeError(
+   105					"unsupported plugin descriptor apiVersion %q (expected %q)",
+   106					apiVersion, optimizerPluginAPIVersion,
+   107				))
+   108			}
+   109	
+   110			kind := readStringField(vm, descriptorObj, "kind", false)
+   111			if kind == "" {
+   112				kind = "optimizer"
+   113			}
+   114			if kind != "optimizer" {
+   115				panic(vm.NewTypeError("plugin descriptor kind must be %q, got %q", "optimizer", kind))
+   116			}
+   117	
+   118			id := readStringField(vm, descriptorObj, "id", true)
+   119			name := readStringField(vm, descriptorObj, "name", true)
+   120	
+   121			createVal := descriptorObj.Get("create")
+   122			if _, ok := goja.AssertFunction(createVal); !ok {
+   123				panic(vm.NewTypeError("plugin descriptor create must be a function"))
+   124			}
+   125	
+   126			out := vm.NewObject()
+   127			_ = out.Set("apiVersion", apiVersion)
+   128			_ = out.Set("kind", kind)
+   129			_ = out.Set("id", id)
+   130			_ = out.Set("name", name)
+   131			_ = out.Set("create", createVal)
+   132	
+   133			return freezeObject(vm, out)
+   134		})
+   135	}
+   136	
+   137	func readStringField(vm *goja.Runtime, obj *goja.Object, key string, required bool) string {
+   138		v := obj.Get(key)
+   139		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   140			if required {
+   141				panic(vm.NewTypeError("plugin descriptor %s is required", key))
+   142			}
+   143			return ""
+   144		}
+   145		s, ok := v.Export().(string)
+   146		if !ok {
+   147			panic(vm.NewTypeError("plugin descriptor %s must be a string", key))
+   148		}
+   149		out := strings.TrimSpace(s)
+   150		if required && out == "" {
+   151			panic(vm.NewTypeError("plugin descriptor %s is required", key))
+   152		}
+   153		return out
+   154	}
+   155	
+   156	func canonicalizePluginRunInput(vm *goja.Runtime, input goja.Value) goja.Value {
+   157		if input == nil || goja.IsUndefined(input) || goja.IsNull(input) {
+   158			panic(vm.NewTypeError("plugin run input must be an object"))
+   159		}
+   160		inputObj := input.ToObject(vm)
+   161		if inputObj == nil || inputObj.ClassName() != "Object" {
+   162			panic(vm.NewTypeError("plugin run input must be an object"))
+   163		}
+   164	
+   165		transcriptVal := inputObj.Get("transcript")
+   166		transcript, ok := transcriptVal.Export().(string)
+   167		if !ok || strings.TrimSpace(transcript) == "" {
+   168			panic(vm.NewTypeError("plugin run input.transcript must be a non-empty string"))
+   169		}
+   170	
+   171		prompt := readOptionalInputString(inputObj.Get("prompt"))
+   172		profile := readOptionalInputString(inputObj.Get("profile"))
+   173		timeoutMs := readOptionalTimeout(inputObj.Get("timeoutMs"))
+   174		engineOptions := cloneOptionalObject(vm, inputObj.Get("engineOptions"))
+   175	
+   176		out := vm.NewObject()
+   177		_ = out.Set("transcript", transcript)
+   178		_ = out.Set("prompt", prompt)
+   179		_ = out.Set("profile", profile)
+   180		_ = out.Set("timeoutMs", timeoutMs)
+   181		_ = out.Set("engineOptions", engineOptions)
+   182		return freezeObject(vm, out)
+   183	}
+   184	
+   185	func readOptionalInputString(v goja.Value) string {
+   186		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   187			return ""
+   188		}
+   189		s, ok := v.Export().(string)
+   190		if !ok {
+   191			return ""
+   192		}
+   193		return strings.TrimSpace(s)
+   194	}
+   195	
+   196	func readOptionalTimeout(v goja.Value) int {
+   197		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   198			return 120000
+   199		}
+   200		num, ok := v.Export().(float64)
+   201		if !ok || math.IsNaN(num) || math.IsInf(num, 0) || num <= 0 {
+   202			return 120000
+   203		}
+   204		return int(num)
+   205	}
+   206	
+   207	func cloneOptionalObject(vm *goja.Runtime, v goja.Value) goja.Value {
+   208		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   209			return goja.Null()
+   210		}
+   211		obj := v.ToObject(vm)
+   212		if obj == nil || obj.ClassName() != "Object" {
+   213			return goja.Null()
+   214		}
+   215		copyObj := vm.NewObject()
+   216		for _, key := range obj.Keys() {
+   217			_ = copyObj.Set(key, obj.Get(key))
+   218		}
+   219		return freezeObject(vm, copyObj)
+   220	}
+   221	
+   222	func normalizeRunOptions(vm *goja.Runtime, v goja.Value) goja.Value {
+   223		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   224			return vm.NewObject()
+   225		}
+   226		obj := v.ToObject(vm)
+   227		if obj == nil || obj.ClassName() != "Object" {
+   228			return vm.NewObject()
+   229		}
+   230		return obj
+   231	}
+   232	
+   233	func freezeObject(vm *goja.Runtime, obj *goja.Object) goja.Value {
+   234		objectVal := vm.Get("Object")
+   235		objectObj := objectVal.ToObject(vm)
+   236		freezeVal := objectObj.Get("freeze")
+   237		freezeFn, ok := goja.AssertFunction(freezeVal)
+   238		if !ok {
+   239			return obj
+   240		}

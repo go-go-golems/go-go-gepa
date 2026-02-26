@@ -1,0 +1,78 @@
+  1400	                except ValueError as e:
+  1401	                    raise ValueError(f"Invalid reflection_prompt_template for parameter '{param_name}': {e}") from e
+  1402	        else:
+  1403	            InstructionProposalSignature.validate_prompt_template(config.reflection.reflection_prompt_template)
+  1404	
+  1405	    # --- 11. Build reflective proposer from ReflectionConfig ---
+  1406	    reflective_proposer = ReflectiveMutationProposer(
+  1407	        logger=config.tracking.logger,
+  1408	        trainset=train_loader,
+  1409	        adapter=active_adapter,
+  1410	        candidate_selector=candidate_selector,
+  1411	        module_selector=module_selector_instance,
+  1412	        batch_sampler=config.reflection.batch_sampler,
+  1413	        perfect_score=config.reflection.perfect_score,
+  1414	        skip_perfect_score=config.reflection.skip_perfect_score,
+  1415	        experiment_tracker=experiment_tracker,
+  1416	        reflection_lm=config.reflection.reflection_lm,
+  1417	        reflection_prompt_template=config.reflection.reflection_prompt_template,
+  1418	        custom_candidate_proposer=config.reflection.custom_candidate_proposer,
+  1419	    )
+  1420	
+  1421	    # Define evaluator function for merge proposer
+  1422	    def merge_evaluator(
+  1423	        inputs: list[DataInst], prog: Candidate
+  1424	    ) -> tuple[list[object], list[float], list[dict[str, float]] | None]:
+  1425	        eval_out = active_adapter.evaluate(inputs, prog, capture_traces=False)
+  1426	        return eval_out.outputs, eval_out.scores, eval_out.objective_scores
+  1427	
+  1428	    # --- 12. Build merge proposer from MergeConfig (if provided) ---
+  1429	    merge_proposer: MergeProposer | None = None
+  1430	    if config.merge is not None:
+  1431	        merge_proposer = MergeProposer(
+  1432	            logger=config.tracking.logger,
+  1433	            valset=val_loader,
+  1434	            evaluator=merge_evaluator,
+  1435	            use_merge=True,
+  1436	            max_merge_invocations=config.merge.max_merge_invocations,
+  1437	            rng=rng,
+  1438	            val_overlap_floor=config.merge.merge_val_overlap_floor,
+  1439	        )
+  1440	
+  1441	    # --- 13. Create evaluation cache if enabled ---
+  1442	    evaluation_cache: EvaluationCache[Any, Any] | None = None
+  1443	    if config.engine.cache_evaluation:
+  1444	        evaluation_cache = EvaluationCache[Any, Any]()
+  1445	
+  1446	    # --- 14. Build the main engine from EngineConfig ---
+  1447	    engine = GEPAEngine(
+  1448	        adapter=active_adapter,
+  1449	        run_dir=config.engine.run_dir,
+  1450	        valset=val_loader,
+  1451	        seed_candidate=seed_candidate,
+  1452	        perfect_score=config.reflection.perfect_score,
+  1453	        seed=config.engine.seed,
+  1454	        reflective_proposer=reflective_proposer,
+  1455	        merge_proposer=merge_proposer,
+  1456	        frontier_type=config.engine.frontier_type,
+  1457	        logger=config.tracking.logger,
+  1458	        experiment_tracker=experiment_tracker,
+  1459	        track_best_outputs=config.engine.track_best_outputs,
+  1460	        display_progress_bar=config.engine.display_progress_bar,
+  1461	        raise_on_exception=config.engine.raise_on_exception,
+  1462	        stop_callback=stop_callback,
+  1463	        val_evaluation_policy=config.engine.val_evaluation_policy,
+  1464	        use_cloudpickle=config.engine.use_cloudpickle,
+  1465	        evaluation_cache=evaluation_cache,
+  1466	    )
+  1467	
+  1468	    # --- 15. Run optimization ---
+  1469	    with experiment_tracker:
+  1470	        state = engine.run()
+  1471	
+  1472	    return GEPAResult.from_state(
+  1473	        state,
+  1474	        run_dir=config.engine.run_dir,
+  1475	        seed=config.engine.seed,
+  1476	        str_candidate_key=_STR_CANDIDATE_KEY if str_candidate_mode else None,
+  1477	    )

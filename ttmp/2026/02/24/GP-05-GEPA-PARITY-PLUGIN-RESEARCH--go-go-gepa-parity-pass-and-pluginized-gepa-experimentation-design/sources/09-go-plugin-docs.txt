@@ -1,0 +1,244 @@
+     1	# gepa-runner
+     2	
+     3	`gepa-runner` runs a GEPA-style reflective optimization loop on top of:
+     4	
+     5	- Geppetto inference/runtime
+     6	- JavaScript optimizer plugins (`require("geppetto")`) with local plugin-contract helper (`./lib/gepa_plugin_contract`)
+     7	
+     8	Current implementation includes:
+     9	
+    10	- reflection-based mutation
+    11	- optional merge/crossover
+    12	- multi-parameter candidate optimization
+    13	- Pareto-aware parent selection (when evaluator returns multiple objectives)
+    14	- optional SQLite run recording
+    15	
+    16	## Quick start
+    17	
+    18	```bash
+    19	gepa-runner optimize \
+    20	  --script ./cmd/gepa-runner/scripts/toy_math_optimizer.js \
+    21	  --seed "Answer the question. Respond with only the final answer." \
+    22	  --max-evals 200 \
+    23	  --batch-size 8 \
+    24	  --out-prompt best_prompt.txt \
+    25	  --out-report run_report.json \
+    26	  --profile 4o-mini
+    27	```
+    28	
+    29	Dataset can come from plugin `dataset()` or a file:
+    30	
+    31	```bash
+    32	gepa-runner optimize \
+    33	  --script ./my_optimizer.js \
+    34	  --dataset ./data/train.jsonl \
+    35	  --seed-file ./seed_prompt.txt
+    36	```
+    37	
+    38	## Included example scripts
+    39	
+    40	Under `cmd/gepa-runner/scripts/`:
+    41	
+    42	- `toy_math_optimizer.js`
+    43	  - baseline arithmetic optimizer, now using shared helper library
+    44	- `multi_param_math_optimizer.js`
+    45	  - multi-parameter candidate (`prompt`, `planner_prompt`, `critic_prompt`)
+    46	  - plugin-side component selection and per-component side-info shaping
+    47	- `seedless_heuristic_merge_optimizer.js`
+    48	  - seedless initialization via `initialCandidate()`
+    49	  - non-LLM heuristic merge callback
+    50	- `optimize_anything_style_optimizer.js`
+    51	  - component-metadata adapter style inspired by optimize-anything patterns
+    52	  - multi-objective scoring + component-aware hooks
+    53	- `smoke_noop_optimizer.js`
+    54	  - minimal smoke plugin
+    55	
+    56	Shared JS utilities are in:
+    57	
+    58	- `cmd/gepa-runner/scripts/lib/gepa_optimizer_common.js`
+    59	
+    60	## Optimize flags (important)
+    61	
+    62	Core:
+    63	
+    64	- `--script` JS plugin path (required)
+    65	- `--dataset` optional JSON/JSONL dataset file
+    66	- `--max-evals` evaluator call budget
+    67	- `--batch-size` minibatch size
+    68	- `--objective` optional natural-language objective prefix for reflection/merge prompts
+    69	
+    70	Seeding:
+    71	
+    72	- `--seed` prompt text
+    73	- `--seed-file` prompt file
+    74	- `--seed-candidate` JSON/YAML object map for multi-param seed
+    75	- `--seedless` use plugin `initialCandidate()` when no seed/seed-file/seed-candidate is provided
+    76	
+    77	Merge / scheduler:
+    78	
+    79	- `--merge-prob` merge attempt probability
+    80	- `--merge-scheduler` `probabilistic` (default) or `stagnation_due`
+    81	- `--max-merges-due` cap for internal due counter (`stagnation_due` mode)
+    82	
+    83	Multi-param:
+    84	
+    85	- `--optimizable-keys` comma-separated candidate keys to optimize
+    86	- `--component-selector` `round_robin` (default) or `all`
+    87	
+    88	Observability / outputs:
+    89	
+    90	- `--show-events` print mutate/merge attempted/accepted/rejected events
+    91	- `--out-prompt` write best candidate `prompt` key
+    92	- `--out-report` write full JSON result
+    93	- `--record` persist run metrics to SQLite
+    94	- `--record-db` SQLite path (default: `.gepa-runner/runs.sqlite`)
+    95	
+    96	## Multi-parameter example
+    97	
+    98	`seed-candidate.yaml`:
+    99	
+   100	```yaml
+   101	prompt: |
+   102	  Solve the task and return final answer only.
+   103	planner_prompt: |
+   104	  Produce a short plan before solving.
+   105	critic_prompt: |
+   106	  Identify likely mistakes and verify output.
+   107	```
+   108	
+   109	Run:
+   110	
+   111	```bash
+   112	gepa-runner optimize \
+   113	  --script ./my_optimizer.js \
+   114	  --dataset ./data/train.jsonl \
+   115	  --seed-candidate ./seed-candidate.yaml \
+   116	  --optimizable-keys prompt,planner_prompt,critic_prompt \
+   117	  --component-selector round_robin
+   118	```
+   119	
+   120	## Seedless mode example
+   121	
+   122	Plugin provides `initialCandidate()` and run uses `--seedless`:
+   123	
+   124	```bash
+   125	gepa-runner optimize \
+   126	  --script ./my_optimizer.js \
+   127	  --dataset ./data/train.jsonl \
+   128	  --seedless
+   129	```
+   130	
+   131	If `initialCandidate()` is missing or empty, command fails explicitly.
+   132	
+   133	## JS plugin contract
+   134	
+   135	Plugin descriptor:
+   136	
+   137	```js
+   138	const plugins = require("./lib/gepa_plugin_contract");
+   139	
+   140	module.exports = plugins.defineOptimizerPlugin({
+   141	  apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,
+   142	  kind: "optimizer",
+   143	  id: "my.task",
+   144	  name: "My Task",
+   145	  create(ctx) {
+   146	    return {
+   147	      evaluate(input, options) {
+   148	        return { score: 0.0 };
+   149	      }
+   150	    };
+   151	  }
+   152	});
+   153	```
+   154	
+   155	### Required hook
+   156	
+   157	- `evaluate(input, options) -> object | number`
+   158	
+   159	`input` fields:
+   160	
+   161	- `candidate` map of strings
+   162	- `example` dataset item
+   163	- `exampleIndex` index of example
+   164	
+   165	Return:
+   166	
+   167	- required: `score` (number; higher is better)
+   168	- optional:
+   169	  - `objectiveScores` or `objectives` map of numbers
+   170	  - `output`, `feedback`, `trace`, `notes` / `evaluatorNotes`
+   171	
+   172	### Optional hooks
+   173	
+   174	- `dataset() -> array`
+   175	  - used when `--dataset` is not provided
+   176	
+   177	- `merge(input, options) -> string | object`
+   178	  - aliases recognized: `mergeCandidate`, `mergePrompt`
+   179	  - `input` includes `candidateA`, `candidateB`, `paramKey`, `paramA`, `paramB`, `sideInfoA`, `sideInfoB`
+   180	
+   181	- `initialCandidate(options) -> string | object`
+   182	  - alias recognized: `getInitialCandidate`
+   183	  - used by `--seedless`
+   184	
+   185	- `selectComponents(input, options) -> string | string[]`
+   186	  - alias recognized: `chooseComponents`
+   187	  - `input` includes `operation`, `parentId`, `parent2Id`, `candidate`, `availableKeys`, `nextParamIndex`
+   188	
+   189	- `componentSideInfo(input, options) -> string | object`
+   190	  - aliases recognized: `sideInfoForComponent`, `buildSideInfo`
+   191	  - `input` includes `operation`, `paramKey`, `examples`, `evals`, `maxChars`, `default`
+   192	
+   193	`options` fields passed to hooks:
+   194	
+   195	- `profile`
+   196	- `engineOptions`
+   197	- `tags`
+   198	
+   199	## Merge return decoding rules
+   200	
+   201	`merge(...)` can return:
+   202	
+   203	- a string (merged text)
+   204	- an object with one of:
+   205	  - `<paramKey>`
+   206	  - `prompt`
+   207	  - `merged`
+   208	  - `mergedPrompt`
+   209	  - `text`
+   210	- or `{ candidate: { <paramKey>: "..." } }`
+   211	
+   212	## Event stream
+   213	
+   214	With `--show-events`, `optimize` prints one line per event, e.g.:
+   215	
+   216	```text
+   217	[event] iter=7 type=merge_attempted op=merge parent=4 parent2=2 child=9 accepted=false baseline=0.812500 child=0.790000 keys=prompt
+   218	```
+   219	
+   220	Event types:
+   221	
+   222	- `mutate_attempted`, `mutate_accepted`, `mutate_rejected`
+   223	- `merge_attempted`, `merge_accepted`, `merge_rejected`
+   224	
+   225	## Recorded runs
+   226	
+   227	Persist optimize/eval metrics:
+   228	
+   229	```bash
+   230	gepa-runner optimize \
+   231	  --script ./cmd/gepa-runner/scripts/toy_math_optimizer.js \
+   232	  --seed "ok seed" \
+   233	  --max-evals 8 \
+   234	  --batch-size 2 \
+   235	  --record \
+   236	  --record-db ./tmp/gepa-runs.sqlite
+   237	```
+   238	
+   239	Inspect:
+   240	
+   241	```bash
+   242	gepa-runner eval-report --db ./tmp/gepa-runs.sqlite --limit-runs 20 --format table
+   243	gepa-runner eval-report --db ./tmp/gepa-runs.sqlite --limit-runs 20 --format json
+   244	```

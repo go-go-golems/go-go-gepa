@@ -1,0 +1,6 @@
+## Doctor Report (1 findings)
+
+### GP-04-GEPA-MERGE-MULTIPARAM-ALIGN
+
+- ✅ All checks passed
+

@@ -1,0 +1,380 @@
+     1	package gepa
+     2	
+     3	import (
+     4		"context"
+     5		"encoding/json"
+     6		"fmt"
+     7		"math"
+     8		"math/rand"
+     9		"sort"
+    10		"strings"
+    11		"time"
+    12	)
+    13	
+    14	// EvaluateFunc evaluates a candidate on a single example.
+    15	// The exampleIndex is provided for caching and traceability.
+    16	type EvaluateFunc func(ctx context.Context, candidate Candidate, exampleIndex int, example any) (EvalResult, error)
+    17	
+    18	// MergeInput is passed to an optional MergeFunc hook.
+    19	// It is intentionally string-first (for the prompt-like primary param), while still
+    20	// providing full candidate maps for advanced merge logic.
+    21	type MergeInput struct {
+    22		ParentA   Candidate `json:"parent_a"`
+    23		ParentB   Candidate `json:"parent_b"`
+    24		ParamKey  string    `json:"param_key"`
+    25		ParamA    string    `json:"param_a"`
+    26		ParamB    string    `json:"param_b"`
+    27		SideInfoA string    `json:"side_info_a"`
+    28		SideInfoB string    `json:"side_info_b"`
+    29	}
+    30	
+    31	// MergeFunc can be provided by the caller to override how merges are performed.
+    32	// It should return a new value for the optimizable parameter, plus a raw/debug string.
+    33	//
+    34	// If nil, the optimizer falls back to Reflector.Merge.
+    35	type MergeFunc func(ctx context.Context, in MergeInput) (mergedParam string, raw string, err error)
+    36	
+    37	// Optimizer runs a GEPA-style reflective evolutionary loop.
+    38	//
+    39	// This is intentionally “GEPA-inspired” rather than a 1:1 port of the Python reference.
+    40	// The goal is a small, composable core that can sit on top of Geppetto and JS evaluators.
+    41	type Optimizer struct {
+    42		cfg       Config
+    43		eval      EvaluateFunc
+    44		reflector *Reflector
+    45		mergeFn   MergeFunc
+    46	
+    47		rng       *rand.Rand
+    48		cache     map[string]map[int]EvalResult // candidateHash -> exampleIndex -> result
+    49		callsUsed int
+    50	
+    51		// pool is append-only.
+    52		pool []*candidateNode
+    53	
+    54		// paramKeys are the ordered candidate keys that can be optimized.
+    55		// Determined at Optimize() time from cfg.OptimizableKeys or the seed candidate.
+    56		paramKeys []string
+    57	}
+    58	
+    59	type candidateNode struct {
+    60		ID        CandidateID
+    61		ParentID  CandidateID
+    62		Parent2ID CandidateID
+    63		Candidate Candidate
+    64		CreatedAt time.Time
+    65		Operation string
+    66	
+    67		// NextParamIndex tracks which parameter will be updated next under the
+    68		// "round_robin" component selector.
+    69		NextParamIndex int
+    70	
+    71		// LastUpdated records, per candidate key, the node id that last updated that key.
+    72		// This enables simple system-aware merges that can pick the newest version of each key
+    73		// from multiple parents.
+    74		LastUpdated map[string]CandidateID
+    75	
+    76		// UpdatedKeys records which candidate keys were modified to create this node.
+    77		UpdatedKeys []string
+    78	
+    79		// Evaluations is the subset of cached evaluations we’ve pulled into the node.
+    80		// The optimizer cache is the source of truth; this field is a convenience view.
+    81		Evaluations map[int]EvalResult
+    82	
+    83		// ReflectionRaw is the full raw LLM response from the last mutation step (debug).
+    84		ReflectionRaw string
+    85	}
+    86	
+    87	type Result struct {
+    88		BestCandidate Candidate        `json:"best_candidate"`
+    89		BestStats     CandidateStats   `json:"best_stats"`
+    90		CallsUsed     int              `json:"calls_used"`
+    91		Candidates    []CandidateEntry `json:"candidates"`
+    92	}
+    93	
+    94	type CandidateEntry struct {
+    95		ID            int            `json:"id"`
+    96		ParentID      int            `json:"parent_id"`
+    97		Parent2ID     int            `json:"parent2_id"` // optional (only set for merge children)
+    98		Operation     string         `json:"operation"`  // seed|mutate|merge
+    99		Hash          string         `json:"hash"`
+   100		CreatedAt     time.Time      `json:"created_at"`
+   101		Candidate     Candidate      `json:"candidate"`
+   102		GlobalStats   CandidateStats `json:"global_stats"`
+   103		EvalsCached   int            `json:"evals_cached"`
+   104		ReflectionRaw string         `json:"reflection_raw,omitempty"`
+   105		UpdatedKeys   []string       `json:"updated_keys,omitempty"`
+   106	}
+   107	
+   108	// NewOptimizer constructs an optimizer.
+   109	func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimizer {
+   110		c := cfg.withDefaults()
+   111		r := rand.New(rand.NewSource(c.RandomSeed))
+   112		// Plumb config defaults into the reflector unless the caller overrides.
+   113		if reflector != nil {
+   114			if reflector.System == "" {
+   115				reflector.System = c.ReflectionSystemPrompt
+   116			}
+   117			if reflector.Template == "" {
+   118				reflector.Template = c.ReflectionPromptTemplate
+   119			}
+   120			if reflector.MergeSystem == "" {
+   121				reflector.MergeSystem = c.MergeSystemPrompt
+   122			}
+   123			if reflector.MergeTemplate == "" {
+   124				reflector.MergeTemplate = c.MergePromptTemplate
+   125			}
+   126		}
+   127		return &Optimizer{
+   128			cfg:       c,
+   129			eval:      eval,
+   130			reflector: reflector,
+   131			rng:       r,
+   132			cache:     map[string]map[int]EvalResult{},
+   133		}
+   134	}
+   135	
+   136	// SetMergeFunc installs an optional merge hook.
+   137	// If not set (or set to nil), merges use Reflector.Merge.
+   138	func (o *Optimizer) SetMergeFunc(fn MergeFunc) {
+   139		if o == nil {
+   140			return
+   141		}
+   142		o.mergeFn = fn
+   143	}
+   144	
+   145	// CallsUsed returns the number of evaluator calls consumed so far.
+   146	func (o *Optimizer) CallsUsed() int {
+   147		if o == nil {
+   148			return 0
+   149		}
+   150		return o.callsUsed
+   151	}
+   152	
+   153	func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any) (*Result, error) {
+   154		if o == nil {
+   155			return nil, fmt.Errorf("optimizer is nil")
+   156		}
+   157		if o.eval == nil {
+   158			return nil, fmt.Errorf("optimizer: evaluator is nil")
+   159		}
+   160		if o.reflector == nil || o.reflector.Engine == nil {
+   161			return nil, fmt.Errorf("optimizer: reflector is nil")
+   162		}
+   163		if len(seed) == 0 {
+   164			return nil, fmt.Errorf("optimizer: seed candidate is empty")
+   165		}
+   166		if len(examples) == 0 {
+   167			return nil, fmt.Errorf("optimizer: dataset is empty")
+   168		}
+   169	
+   170		keys, err := deriveOptimizableKeys(o.cfg, seed)
+   171		if err != nil {
+   172			return nil, err
+   173		}
+   174		o.paramKeys = keys
+   175	
+   176		// Initialize pool with seed.
+   177		seedLastUpdated := map[string]CandidateID{}
+   178		for k := range seed {
+   179			seedLastUpdated[k] = 0
+   180		}
+   181		seedNode := &candidateNode{
+   182			ID:          0,
+   183			ParentID:    -1,
+   184			Parent2ID:   -1,
+   185			Candidate:   cloneCandidate(seed),
+   186			CreatedAt:   o.cfg.Now(),
+   187			Evaluations: map[int]EvalResult{},
+   188			Operation:   "seed",
+   189			// round_robin starts at the first key.
+   190			NextParamIndex: 0,
+   191			LastUpdated:    seedLastUpdated,
+   192		}
+   193		o.pool = append(o.pool, seedNode)
+   194	
+   195		// Evaluate seed on an initial batch (to get some ASI).
+   196		initIdx := o.sampleBatchIndices(len(examples), o.cfg.BatchSize, o.remainingBudget())
+   197		if len(initIdx) == 0 {
+   198			return nil, fmt.Errorf("optimizer: insufficient budget to evaluate seed")
+   199		}
+   200		if _, err := o.ensureEvaluated(ctx, seedNode, examples, initIdx); err != nil {
+   201			return nil, err
+   202		}
+   203	
+   204		bestNode := seedNode
+   205	
+   206		for o.callsUsed < o.cfg.MaxEvalCalls {
+   207			remaining := o.remainingBudget()
+   208			if remaining <= 0 {
+   209				break
+   210			}
+   211	
+   212			parent := o.selectParent()
+   213			if parent == nil {
+   214				break
+   215			}
+   216	
+   217			useMerge := o.cfg.MergeProbability > 0 && len(o.pool) >= 2 && o.rng.Float64() < o.cfg.MergeProbability
+   218			var parent2 *candidateNode
+   219			if useMerge {
+   220				parent2 = o.selectParentDistinct(parent.ID)
+   221				if parent2 == nil {
+   222					useMerge = false
+   223				}
+   224			}
+   225	
+   226			// Plan evaluations within remaining budget.
+   227			// Worst case:
+   228			//  - mutation: evaluate parent + child on the same minibatch  => 2 * batchSize
+   229			//  - merge: evaluate parentA + parentB + child on minibatch   => 3 * batchSize
+   230			mult := 2
+   231			if useMerge {
+   232				mult = 3
+   233			}
+   234			batchSize := o.cfg.BatchSize
+   235			if batchSize*mult > remaining {
+   236				batchSize = remaining / mult
+   237			}
+   238			if batchSize <= 0 {
+   239				break
+   240			}
+   241	
+   242			batchIdx := o.sampleBatchIndices(len(examples), batchSize, remaining)
+   243			if len(batchIdx) == 0 {
+   244				break
+   245			}
+   246	
+   247			parentEvals, err := o.ensureEvaluated(ctx, parent, examples, batchIdx)
+   248			if err != nil {
+   249				return nil, err
+   250			}
+   251	
+   252			var parent2Stats CandidateStats
+   253	
+   254			childID := CandidateID(len(o.pool))
+   255			components := o.selectComponents(parent)
+   256			if len(components) == 0 {
+   257				break
+   258			}
+   259	
+   260			var childCand Candidate
+   261			var childLastUpdated map[string]CandidateID
+   262			var rawReflection string
+   263			var operation string
+   264			var updatedKeys []string
+   265	
+   266			if useMerge {
+   267				parent2Evals, err := o.ensureEvaluated(ctx, parent2, examples, batchIdx)
+   268				if err != nil {
+   269					return nil, err
+   270				}
+   271				parent2Stats = AggregateStats(parent2Evals)
+   272	
+   273				// Start with a simple system-aware merge that picks the newest version of each key
+   274				// from the two parents. Then (optionally) run an LLM-based merge for the selected
+   275				// component(s).
+   276				childCand, childLastUpdated = o.systemAwareMerge(parent, parent2)
+   277				if childCand == nil {
+   278					childCand = cloneCandidate(parent.Candidate)
+   279				}
+   280				if childLastUpdated == nil {
+   281					childLastUpdated = cloneLastUpdated(parent.LastUpdated)
+   282				}
+   283	
+   284				rawByKey := map[string]string{}
+   285				for _, key := range components {
+   286					sideInfoA := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
+   287					sideInfoB := FormatSideInfoForKey(examples, parent2Evals, key, o.cfg.MaxSideInfoChars)
+   288	
+   289					mergedText, mergeRaw, err := o.proposeMerge(ctx, MergeInput{
+   290						ParentA:   cloneCandidate(parent.Candidate),
+   291						ParentB:   cloneCandidate(parent2.Candidate),
+   292						ParamKey:  key,
+   293						ParamA:    parent.Candidate[key],
+   294						ParamB:    parent2.Candidate[key],
+   295						SideInfoA: sideInfoA,
+   296						SideInfoB: sideInfoB,
+   297					})
+   298					if err != nil {
+   299						return nil, err
+   300					}
+   301					rawByKey[key] = mergeRaw
+   302					childCand[key] = mergedText
+   303					childLastUpdated[key] = childID
+   304					updatedKeys = append(updatedKeys, key)
+   305				}
+   306				rawReflection = encodeRawByKey(rawByKey)
+   307				operation = "merge"
+   308			} else {
+   309				childCand = cloneCandidate(parent.Candidate)
+   310				childLastUpdated = cloneLastUpdated(parent.LastUpdated)
+   311				rawByKey := map[string]string{}
+   312				for _, key := range components {
+   313					sideInfo := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
+   314					current := parent.Candidate[key]
+   315	
+   316					childText, raw, err := o.reflector.Propose(ctx, current, sideInfo)
+   317					if err != nil {
+   318						return nil, err
+   319					}
+   320					rawByKey[key] = raw
+   321					childCand[key] = childText
+   322					childLastUpdated[key] = childID
+   323					updatedKeys = append(updatedKeys, key)
+   324				}
+   325				rawReflection = encodeRawByKey(rawByKey)
+   326				operation = "mutate"
+   327			}
+   328	
+   329			childNode := &candidateNode{
+   330				ID:            childID,
+   331				ParentID:      parent.ID,
+   332				Parent2ID:     -1,
+   333				Candidate:     childCand,
+   334				CreatedAt:     o.cfg.Now(),
+   335				Evaluations:   map[int]EvalResult{},
+   336				ReflectionRaw: rawReflection,
+   337				Operation:     operation,
+   338				LastUpdated:   childLastUpdated,
+   339				UpdatedKeys:   append([]string(nil), updatedKeys...),
+   340				// child continues from the parent(s) under round_robin.
+   341				NextParamIndex: parent.NextParamIndex,
+   342			}
+   343			if useMerge {
+   344				childNode.Parent2ID = parent2.ID
+   345				childNode.NextParamIndex = maxInt(parent.NextParamIndex, parent2.NextParamIndex)
+   346			}
+   347	
+   348			childEvals, err := o.ensureEvaluated(ctx, childNode, examples, batchIdx)
+   349			if err != nil {
+   350				return nil, err
+   351			}
+   352	
+   353			parentStats := AggregateStats(parentEvals)
+   354			childStats := AggregateStats(childEvals)
+   355			baselineStats := parentStats
+   356			if useMerge {
+   357				// For merge, accept relative to the better of the two parents on this batch.
+   358				if parent2Stats.MeanScore > baselineStats.MeanScore {
+   359					baselineStats = parent2Stats
+   360				}
+   361			}
+   362	
+   363			if o.acceptChild(baselineStats, childStats) {
+   364				o.pool = append(o.pool, childNode)
+   365				// Update best based on global stats available so far.
+   366				if childGlobal := o.globalStats(childNode); childGlobal.MeanScore > o.globalStats(bestNode).MeanScore {
+   367					bestNode = childNode
+   368				}
+   369			}
+   370		}
+   371	
+   372		bestStats := o.globalStats(bestNode)
+   373	
+   374		entries := make([]CandidateEntry, 0, len(o.pool))
+   375		for _, n := range o.pool {
+   376			entries = append(entries, CandidateEntry{
+   377				ID:            int(n.ID),
+   378				ParentID:      int(n.ParentID),
+   379				Parent2ID:     int(n.Parent2ID),
+   380				Operation:     n.Operation,

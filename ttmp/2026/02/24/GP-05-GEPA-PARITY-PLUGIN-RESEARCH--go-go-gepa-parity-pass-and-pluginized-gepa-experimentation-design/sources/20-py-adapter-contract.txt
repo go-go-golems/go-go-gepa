@@ -1,0 +1,180 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	from collections.abc import Mapping, Sequence
+     5	from dataclasses import dataclass
+     6	from typing import Any, Generic, Protocol, TypeVar
+     7	
+     8	# Generic type aliases matching your original
+     9	RolloutOutput = TypeVar("RolloutOutput")
+    10	Trajectory = TypeVar("Trajectory")
+    11	DataInst = TypeVar("DataInst")
+    12	Candidate = dict[str, str]
+    13	
+    14	
+    15	@dataclass
+    16	class EvaluationBatch(Generic[Trajectory, RolloutOutput]):
+    17	    """
+    18	    Container for the result of evaluating a proposed candidate on a batch of data.
+    19	
+    20	    - outputs: raw per-example outputs from upon executing the candidate. GEPA does not interpret these;
+    21	      they are forwarded to other parts of the user's code or logging as-is.
+    22	    - scores: per-example numeric scores (floats). GEPA sums these for minibatch acceptance
+    23	      and averages them over the full validation set for tracking/pareto fronts.
+    24	    - trajectories: optional per-example traces used by make_reflective_dataset to build
+    25	      a reflective dataset (See `GEPAAdapter.make_reflective_dataset`). If capture_traces=True is passed to `evaluate`, trajectories
+    26	      should be provided and align one-to-one with `outputs` and `scores`.
+    27	    - objective_scores: optional per-example maps of objective name -> score. Leave None when
+    28	      the evaluator does not expose multi-objective metrics.
+    29	    """
+    30	
+    31	    outputs: list[RolloutOutput]
+    32	    scores: list[float]
+    33	    trajectories: list[Trajectory] | None = None
+    34	    objective_scores: list[dict[str, float]] | None = None
+    35	
+    36	
+    37	class ProposalFn(Protocol):
+    38	    def __call__(
+    39	        self,
+    40	        candidate: dict[str, str],
+    41	        reflective_dataset: Mapping[str, Sequence[Mapping[str, Any]]],
+    42	        components_to_update: list[str],
+    43	    ) -> dict[str, str]:
+    44	        """
+    45	        - Given the current `candidate`, a reflective dataset (as returned by
+    46	          `GEPAAdapter.make_reflective_dataset`), and a list of component names to update,
+    47	          return a mapping component_name -> new component text (str). This allows the user
+    48	          to implement their own instruction proposal logic. For example, the user can use
+    49	          a different LLM, implement DSPy signatures, etc. Another example can be situations
+    50	          where 2 or more components need to be updated together (coupled updates).
+    51	
+    52	        Returns
+    53	        - Dict[str, str] mapping component names to newly proposed component texts.
+    54	        """
+    55	        ...
+    56	
+    57	
+    58	class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
+    59	    """
+    60	    GEPAAdapter is the single integration point between your system
+    61	    and the GEPA optimization engine. Implementers provide three responsibilities:
+    62	
+    63	    The following are user-defined types that are not interpreted by GEPA but are used by the user's code
+    64	        to define the adapter:
+    65	    DataInst: User-defined type of input data to the program under optimization.
+    66	    Trajectory: User-defined type of trajectory data, which typically captures the
+    67	        different steps of the program candidate execution.
+    68	    RolloutOutput: User-defined type of output data from the program candidate.
+    69	
+    70	    The following are the responsibilities of the adapter:
+    71	    1) Program construction and evaluation (evaluate):
+    72	       Given a batch of DataInst and a "candidate" program (mapping from named components
+    73	       -> component text), execute the program to produce per-example scores and
+    74	       optionally rich trajectories (capturing intermediate states) needed for reflection.
+    75	
+    76	    2) Reflective dataset construction (make_reflective_dataset):
+    77	       Given the candidate, EvaluationBatch (trajectories, outputs, scores), and the list of components to update,
+    78	       produce a small JSON-serializable dataset for each component that you want to update. This
+    79	       dataset is fed to the teacher LM to propose improved component text.
+    80	
+    81	    3) Optional instruction proposal (propose_new_texts):
+    82	       GEPA provides a default implementation (instruction_proposal.py) that serializes the reflective dataset
+    83	       to propose new component texts. However, users can implement their own proposal logic by implementing this method.
+    84	       This method receives the current candidate, the reflective dataset, and the list of components to update,
+    85	       and returns a mapping from component name to new component text.
+    86	
+    87	    Key concepts and contracts:
+    88	    - candidate: Dict[str, str] mapping a named component of the system to its corresponding text.
+    89	    - scores: higher is better. GEPA uses:
+    90	      - minibatch: sum(scores) to compare old vs. new candidate (acceptance test),
+    91	      - full valset: mean(scores) for tracking and Pareto-front selection.
+    92	      Ensure your metric is calibrated accordingly or normalized to a consistent scale.
+    93	    - trajectories: opaque to GEPA (the engine never inspects them). They must be
+    94	      consumable by your own make_reflective_dataset implementation to extract the
+    95	      minimal context needed to produce meaningful feedback for every component of
+    96	      the system under optimization.
+    97	    - error handling: Never raise for individual example failures. Instead:
+    98	      - Return a valid `EvaluationBatch` with per-example failure scores (e.g., 0.0)
+    99	        when formatting/parsing fails. Even better if the trajectories are also populated
+   100	        with the failed example, including the error message, identifying the reason for the failure.
+   101	      - Reserve exceptions for unrecoverable, systemic failures (e.g., missing model,
+   102	        misconfigured program, schema mismatch).
+   103	      - If an exception is raised, the engine will log the error and proceed to the next iteration.
+   104	    """
+   105	
+   106	    def evaluate(
+   107	        self,
+   108	        batch: list[DataInst],
+   109	        candidate: dict[str, str],
+   110	        capture_traces: bool = False,
+   111	    ) -> EvaluationBatch[Trajectory, RolloutOutput]:
+   112	        """
+   113	        Run the program defined by `candidate` on a batch of data.
+   114	
+   115	        Parameters
+   116	        - batch: list of task-specific inputs (DataInst).
+   117	        - candidate: mapping from component name -> component text. You must instantiate
+   118	          your full system with the component text for each component, and execute it on the batch.
+   119	        - capture_traces: when True, you must populate `EvaluationBatch.trajectories`
+   120	          with a per-example trajectory object that your `make_reflective_dataset` can
+   121	          later consume. When False, you may set trajectories=None to save time/memory.
+   122	          capture_traces=True is used by the reflective mutation proposer to build a reflective dataset.
+   123	
+   124	        Returns
+   125	        - EvaluationBatch with:
+   126	          - outputs: raw per-example outputs (opaque to GEPA).
+   127	          - scores: per-example floats, length == len(batch). Higher is better.
+   128	          - trajectories:
+   129	              - if capture_traces=True: list[Trajectory] with length == len(batch).
+   130	              - if capture_traces=False: None.
+   131	
+   132	        Scoring semantics
+   133	        - The engine uses sum(scores) on minibatches to decide whether to accept a
+   134	          candidate mutation and average(scores) over the full valset for tracking.
+   135	        - Prefer to return per-example scores, that can be aggregated via summation.
+   136	        - If an example fails (e.g., parse error), use a fallback score (e.g., 0.0).
+   137	
+   138	        Correctness constraints
+   139	        - len(outputs) == len(scores) == len(batch)
+   140	        - If capture_traces=True: trajectories must be provided and len(trajectories) == len(batch)
+   141	        - Do not mutate `batch` or `candidate` in-place. Construct a fresh program
+   142	          instance or deep-copy as needed.
+   143	        """
+   144	        ...
+   145	
+   146	    def make_reflective_dataset(
+   147	        self,
+   148	        candidate: dict[str, str],
+   149	        eval_batch: EvaluationBatch[Trajectory, RolloutOutput],
+   150	        components_to_update: list[str],
+   151	    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+   152	        """
+   153	        Build a small, JSON-serializable dataset (per component) to drive instruction
+   154	        refinement by a teacher LLM.
+   155	
+   156	        Parameters
+   157	        - candidate: the same candidate evaluated in evaluate().
+   158	        - eval_batch: The result of evaluate(..., capture_traces=True) on
+   159	          the same batch. You should extract everything you need from eval_batch.trajectories
+   160	          (and optionally outputs/scores) to assemble concise, high-signal examples.
+   161	        - components_to_update: subset of component names for which the proposer has
+   162	          requested updates. At a time, GEPA identifies a subset of components to update.
+   163	
+   164	        Returns
+   165	        - A dict: component_name -> list of dict records (the "reflective dataset").
+   166	          Each record should be JSON-serializable and is passed verbatim to the
+   167	          instruction proposal prompt. A recommended schema is:
+   168	            {
+   169	              "Inputs": Dict[str, str],             # Minimal, clean view of the inputs to the component
+   170	              "Generated Outputs": Dict[str, str] | str,  # Model outputs or raw text
+   171	              "Feedback": str                       # Feedback on the component's performance, including correct answer, error messages, etc.
+   172	            }
+   173	          You may include additional keys (e.g., "score", "rationale", "trace_id") if useful.
+   174	
+   175	        Determinism
+   176	        - If you subsample trace instances, use a seeded RNG to keep runs reproducible.
+   177	        """
+   178	        ...
+   179	
+   180	    propose_new_texts: ProposalFn | None = None

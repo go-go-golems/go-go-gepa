@@ -1,0 +1,320 @@
+     1	package gepa
+     2	
+     3	import (
+     4		"context"
+     5		"fmt"
+     6		"math"
+     7		"math/rand"
+     8		"time"
+     9	)
+    10	
+    11	// EvaluateFunc evaluates a candidate on a single example.
+    12	// The exampleIndex is provided for caching and traceability.
+    13	type EvaluateFunc func(ctx context.Context, candidate Candidate, exampleIndex int, example any) (EvalResult, error)
+    14	
+    15	// Optimizer runs a GEPA-style reflective evolutionary loop.
+    16	//
+    17	// This is intentionally “GEPA-inspired” rather than a 1:1 port of the Python reference.
+    18	// The goal is a small, composable core that can sit on top of Geppetto and JS evaluators.
+    19	type Optimizer struct {
+    20		cfg       Config
+    21		eval      EvaluateFunc
+    22		reflector *Reflector
+    23	
+    24		rng       *rand.Rand
+    25		cache     map[string]map[int]EvalResult // candidateHash -> exampleIndex -> result
+    26		callsUsed int
+    27	
+    28		// pool is append-only.
+    29		pool []*candidateNode
+    30	}
+    31	
+    32	type candidateNode struct {
+    33		ID        CandidateID
+    34		ParentID  CandidateID
+    35		Candidate Candidate
+    36		CreatedAt time.Time
+    37	
+    38		// Evaluations is the subset of cached evaluations we’ve pulled into the node.
+    39		// The optimizer cache is the source of truth; this field is a convenience view.
+    40		Evaluations map[int]EvalResult
+    41	
+    42		// ReflectionRaw is the full raw LLM response from the last mutation step (debug).
+    43		ReflectionRaw string
+    44	}
+    45	
+    46	type Result struct {
+    47		BestCandidate Candidate        `json:"best_candidate"`
+    48		BestStats     CandidateStats   `json:"best_stats"`
+    49		CallsUsed     int              `json:"calls_used"`
+    50		Candidates    []CandidateEntry `json:"candidates"`
+    51	}
+    52	
+    53	type CandidateEntry struct {
+    54		ID            int            `json:"id"`
+    55		ParentID      int            `json:"parent_id"`
+    56		Hash          string         `json:"hash"`
+    57		CreatedAt     time.Time      `json:"created_at"`
+    58		Candidate     Candidate      `json:"candidate"`
+    59		GlobalStats   CandidateStats `json:"global_stats"`
+    60		EvalsCached   int            `json:"evals_cached"`
+    61		ReflectionRaw string         `json:"reflection_raw,omitempty"`
+    62	}
+    63	
+    64	// NewOptimizer constructs an optimizer.
+    65	func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimizer {
+    66		c := cfg.withDefaults()
+    67		r := rand.New(rand.NewSource(c.RandomSeed))
+    68		return &Optimizer{
+    69			cfg:       c,
+    70			eval:      eval,
+    71			reflector: reflector,
+    72			rng:       r,
+    73			cache:     map[string]map[int]EvalResult{},
+    74		}
+    75	}
+    76	
+    77	// CallsUsed returns the number of evaluator calls consumed so far.
+    78	func (o *Optimizer) CallsUsed() int {
+    79		if o == nil {
+    80			return 0
+    81		}
+    82		return o.callsUsed
+    83	}
+    84	
+    85	func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any) (*Result, error) {
+    86		if o == nil {
+    87			return nil, fmt.Errorf("optimizer is nil")
+    88		}
+    89		if o.eval == nil {
+    90			return nil, fmt.Errorf("optimizer: evaluator is nil")
+    91		}
+    92		if o.reflector == nil || o.reflector.Engine == nil {
+    93			return nil, fmt.Errorf("optimizer: reflector is nil")
+    94		}
+    95		if len(seed) == 0 {
+    96			return nil, fmt.Errorf("optimizer: seed candidate is empty")
+    97		}
+    98		if len(examples) == 0 {
+    99			return nil, fmt.Errorf("optimizer: dataset is empty")
+   100		}
+   101	
+   102		// Initialize pool with seed.
+   103		seedNode := &candidateNode{
+   104			ID:          0,
+   105			ParentID:    -1,
+   106			Candidate:   cloneCandidate(seed),
+   107			CreatedAt:   o.cfg.Now(),
+   108			Evaluations: map[int]EvalResult{},
+   109		}
+   110		o.pool = append(o.pool, seedNode)
+   111	
+   112		// Evaluate seed on an initial batch (to get some ASI).
+   113		initIdx := o.sampleBatchIndices(len(examples), o.cfg.BatchSize, o.remainingBudget())
+   114		if len(initIdx) == 0 {
+   115			return nil, fmt.Errorf("optimizer: insufficient budget to evaluate seed")
+   116		}
+   117		if _, err := o.ensureEvaluated(ctx, seedNode, examples, initIdx); err != nil {
+   118			return nil, err
+   119		}
+   120	
+   121		bestNode := seedNode
+   122	
+   123		for o.callsUsed < o.cfg.MaxEvalCalls {
+   124			callsAtIterStart := o.callsUsed
+   125			remaining := o.remainingBudget()
+   126			if remaining <= 0 {
+   127				break
+   128			}
+   129	
+   130			parent := o.selectParent()
+   131			if parent == nil {
+   132				break
+   133			}
+   134	
+   135			// Plan evaluations for parent/child within remaining budget.
+   136			// Worst case: we need to evaluate both parent and child on the same minibatch.
+   137			// Parent may already be cached on some indices, so we conservatively size based on remaining.
+   138			batchSize := o.cfg.BatchSize
+   139			if batchSize*2 > remaining {
+   140				batchSize = remaining / 2
+   141			}
+   142			if batchSize <= 0 {
+   143				break
+   144			}
+   145	
+   146			batchIdx := o.sampleBatchIndices(len(examples), batchSize, remaining)
+   147			if len(batchIdx) == 0 {
+   148				break
+   149			}
+   150	
+   151			parentEvals, err := o.ensureEvaluated(ctx, parent, examples, batchIdx)
+   152			if err != nil {
+   153				return nil, err
+   154			}
+   155	
+   156			sideInfo := FormatSideInfo(examples, parentEvals, o.cfg.MaxSideInfoChars)
+   157	
+   158			// Mutate candidate (currently: optimize the "prompt" key if present; else first key).
+   159			paramKey := primaryParamKey(parent.Candidate)
+   160			current := parent.Candidate[paramKey]
+   161	
+   162			childText, rawReflection, err := o.reflector.Propose(ctx, current, sideInfo)
+   163			if err != nil {
+   164				return nil, err
+   165			}
+   166			childCand := cloneCandidate(parent.Candidate)
+   167			childCand[paramKey] = childText
+   168	
+   169			childNode := &candidateNode{
+   170				ID:            CandidateID(len(o.pool)),
+   171				ParentID:      parent.ID,
+   172				Candidate:     childCand,
+   173				CreatedAt:     o.cfg.Now(),
+   174				Evaluations:   map[int]EvalResult{},
+   175				ReflectionRaw: rawReflection,
+   176			}
+   177	
+   178			childEvals, err := o.ensureEvaluated(ctx, childNode, examples, batchIdx)
+   179			if err != nil {
+   180				return nil, err
+   181			}
+   182	
+   183			parentStats := AggregateStats(parentEvals)
+   184			childStats := AggregateStats(childEvals)
+   185	
+   186			accepted := o.acceptChild(parentStats, childStats)
+   187			if accepted {
+   188				o.pool = append(o.pool, childNode)
+   189				// Update best based on global stats available so far.
+   190				if childGlobal := o.globalStats(childNode); childGlobal.MeanScore > o.globalStats(bestNode).MeanScore {
+   191					bestNode = childNode
+   192				}
+   193			}
+   194	
+   195			// Guard against stagnation: when all parent/child evals come from cache
+   196			// and no candidate is accepted, the loop would otherwise spin forever.
+   197			if o.callsUsed == callsAtIterStart && !accepted {
+   198				break
+   199			}
+   200		}
+   201	
+   202		bestStats := o.globalStats(bestNode)
+   203	
+   204		entries := make([]CandidateEntry, 0, len(o.pool))
+   205		for _, n := range o.pool {
+   206			entries = append(entries, CandidateEntry{
+   207				ID:            int(n.ID),
+   208				ParentID:      int(n.ParentID),
+   209				Hash:          candidateHash(n.Candidate),
+   210				CreatedAt:     n.CreatedAt,
+   211				Candidate:     cloneCandidate(n.Candidate),
+   212				GlobalStats:   o.globalStats(n),
+   213				EvalsCached:   len(o.cache[candidateHash(n.Candidate)]),
+   214				ReflectionRaw: n.ReflectionRaw,
+   215			})
+   216		}
+   217	
+   218		return &Result{
+   219			BestCandidate: cloneCandidate(bestNode.Candidate),
+   220			BestStats:     bestStats,
+   221			CallsUsed:     o.callsUsed,
+   222			Candidates:    entries,
+   223		}, nil
+   224	}
+   225	
+   226	func (o *Optimizer) remainingBudget() int {
+   227		return o.cfg.MaxEvalCalls - o.callsUsed
+   228	}
+   229	
+   230	func (o *Optimizer) acceptChild(parent, child CandidateStats) bool {
+   231		// Multi-objective: accept if child dominates parent.
+   232		if len(parent.MeanObjectives) > 1 || len(child.MeanObjectives) > 1 {
+   233			if Dominates(child.MeanObjectives, parent.MeanObjectives) {
+   234				return true
+   235			}
+   236			// Fallback: accept if scalar score improved.
+   237		}
+   238	
+   239		return child.MeanScore > parent.MeanScore+o.cfg.Epsilon
+   240	}
+   241	
+   242	func (o *Optimizer) selectParent() *candidateNode {
+   243		if len(o.pool) == 0 {
+   244			return nil
+   245		}
+   246	
+   247		// Build objective vectors for selection.
+   248		obj := make([]ObjectiveScores, 0, len(o.pool))
+   249		scalars := make([]float64, 0, len(o.pool))
+   250		for _, n := range o.pool {
+   251			stats := o.globalStats(n)
+   252			vec := stats.MeanObjectives
+   253			if len(vec) == 0 {
+   254				vec = ObjectiveScores{"score": stats.MeanScore}
+   255			}
+   256			obj = append(obj, vec)
+   257			scalars = append(scalars, stats.MeanScore)
+   258		}
+   259	
+   260		// If we have multiple objectives overall, use Pareto front.
+   261		keys := unionObjectiveKeys(obj)
+   262		var candIdx []int
+   263		if len(keys) > 1 {
+   264			candIdx = ParetoFront(obj)
+   265		} else {
+   266			candIdx = TopKByScore(scalars, o.cfg.FrontierSize)
+   267		}
+   268	
+   269		if len(candIdx) == 0 {
+   270			// Fallback to uniform.
+   271			return o.pool[o.rng.Intn(len(o.pool))]
+   272		}
+   273	
+   274		// Weighted random selection by scalar score (shifted to positive).
+   275		minS := math.Inf(1)
+   276		for _, i := range candIdx {
+   277			if scalars[i] < minS {
+   278				minS = scalars[i]
+   279			}
+   280		}
+   281		weights := make([]float64, 0, len(candIdx))
+   282		sum := 0.0
+   283		for _, i := range candIdx {
+   284			w := scalars[i] - minS + 1e-9
+   285			if w < 0 {
+   286				w = 0
+   287			}
+   288			weights = append(weights, w)
+   289			sum += w
+   290		}
+   291		var chosen int
+   292		if sum <= 0 {
+   293			chosen = candIdx[o.rng.Intn(len(candIdx))]
+   294		} else {
+   295			r := o.rng.Float64() * sum
+   296			acc := 0.0
+   297			for j, i := range candIdx {
+   298				acc += weights[j]
+   299				if r <= acc {
+   300					chosen = i
+   301					break
+   302				}
+   303			}
+   304		}
+   305		return o.pool[chosen]
+   306	}
+   307	
+   308	func unionObjectiveKeys(vecs []ObjectiveScores) map[string]struct{} {
+   309		out := map[string]struct{}{}
+   310		for _, v := range vecs {
+   311			for k := range v {
+   312				out[k] = struct{}{}
+   313			}
+   314		}
+   315		return out
+   316	}
+   317	
+   318	func (o *Optimizer) sampleBatchIndices(n, batchSize, budget int) []int {
+   319		if n <= 0 || batchSize <= 0 || budget <= 0 {
+   320			return nil

@@ -1,0 +1,50 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	import random
+     5	
+     6	from gepa.core.state import GEPAState
+     7	from gepa.gepa_utils import idxmax, select_program_candidate_from_pareto_front
+     8	from gepa.proposer.reflective_mutation.base import CandidateSelector
+     9	
+    10	
+    11	class ParetoCandidateSelector(CandidateSelector):
+    12	    def __init__(self, rng: random.Random | None):
+    13	        if rng is None:
+    14	            self.rng = random.Random(0)
+    15	        else:
+    16	            self.rng = rng
+    17	
+    18	    def select_candidate_idx(self, state: GEPAState) -> int:
+    19	        assert len(state.program_full_scores_val_set) == len(state.program_candidates)
+    20	        return select_program_candidate_from_pareto_front(
+    21	            state.get_pareto_front_mapping(),
+    22	            state.per_program_tracked_scores,
+    23	            self.rng,
+    24	        )
+    25	
+    26	
+    27	class CurrentBestCandidateSelector(CandidateSelector):
+    28	    def __init__(self):
+    29	        pass
+    30	
+    31	    def select_candidate_idx(self, state: GEPAState) -> int:
+    32	        assert len(state.program_full_scores_val_set) == len(state.program_candidates)
+    33	        return idxmax(state.program_full_scores_val_set)
+    34	
+    35	
+    36	class EpsilonGreedyCandidateSelector(CandidateSelector):
+    37	    def __init__(self, epsilon: float, rng: random.Random | None):
+    38	        assert 0.0 <= epsilon <= 1.0
+    39	        self.epsilon = epsilon
+    40	        if rng is None:
+    41	            self.rng = random.Random(0)
+    42	        else:
+    43	            self.rng = rng
+    44	
+    45	    def select_candidate_idx(self, state: GEPAState) -> int:
+    46	        assert len(state.program_full_scores_val_set) == len(state.program_candidates)
+    47	        if self.rng.random() < self.epsilon:
+    48	            return self.rng.randint(0, len(state.program_candidates) - 1)
+    49	        else:
+    50	            return idxmax(state.program_full_scores_val_set)

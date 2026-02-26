@@ -1,0 +1,75 @@
+     1	package main
+     2	
+     3	import (
+     4		"path/filepath"
+     5	
+     6		"github.com/dop251/goja"
+     7		"github.com/dop251/goja_nodejs/eventloop"
+     8		"github.com/dop251/goja_nodejs/require"
+     9		gp "github.com/go-go-golems/geppetto/pkg/js/modules/geppetto"
+    10		"github.com/go-go-golems/go-go-goja/pkg/runtimeowner"
+    11		"github.com/rs/zerolog"
+    12	)
+    13	
+    14	// jsRuntime bundles the goja VM, node-style eventloop, and module registry.
+    15	type jsRuntime struct {
+    16		scriptRoot string
+    17	
+    18		loop   *eventloop.EventLoop
+    19		vm     *goja.Runtime
+    20		runner runtimeowner.Runner
+    21	
+    22		reg    *require.Registry
+    23		reqMod *require.RequireModule
+    24	}
+    25	
+    26	func newJSRuntime(scriptRoot string) (*jsRuntime, error) {
+    27		if scriptRoot == "" {
+    28			scriptRoot = "."
+    29		}
+    30	
+    31		loop := eventloop.NewEventLoop()
+    32		go loop.Start()
+    33	
+    34		vm := goja.New()
+    35		runner := runtimeowner.NewRunner(vm, loop, runtimeowner.Options{
+    36			Name:          "gepa-runner",
+    37			RecoverPanics: true,
+    38		})
+    39	
+    40		reg := require.NewRegistry(
+    41			require.WithGlobalFolders(scriptRoot, filepath.Join(scriptRoot, "node_modules")),
+    42		)
+    43	
+    44		// Install minimal console + helpers.
+    45		if err := installConsoleAndHelpers(vm); err != nil {
+    46			loop.Stop()
+    47			return nil, err
+    48		}
+    49	
+    50		// Register geppetto native module.
+    51		gp.Register(reg, gp.Options{
+    52			Runner: runner,
+    53			Logger: zerolog.New(zerolog.NewConsoleWriter()),
+    54		})
+    55	
+    56		reqMod := reg.Enable(vm)
+    57	
+    58		return &jsRuntime{
+    59			scriptRoot: scriptRoot,
+    60			loop:       loop,
+    61			vm:         vm,
+    62			runner:     runner,
+    63			reg:        reg,
+    64			reqMod:     reqMod,
+    65		}, nil
+    66	}
+    67	
+    68	func (r *jsRuntime) Close() {
+    69		if r == nil {
+    70			return
+    71		}
+    72		if r.loop != nil {
+    73			r.loop.Stop()
+    74		}
+    75	}

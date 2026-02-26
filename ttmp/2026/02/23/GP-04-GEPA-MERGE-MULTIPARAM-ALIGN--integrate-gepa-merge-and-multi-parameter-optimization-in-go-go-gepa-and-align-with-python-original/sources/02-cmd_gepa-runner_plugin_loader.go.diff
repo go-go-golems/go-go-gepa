@@ -1,0 +1,239 @@
+diff --git a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/cmd/gepa-runner/plugin_loader.go b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/plugin_loader.go
+index 8ac4466..45a8dbd 100644
+--- a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/cmd/gepa-runner/plugin_loader.go
++++ b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/plugin_loader.go
+@@ -3,12 +3,11 @@ package main
+ import (
+ 	"encoding/json"
+ 	"fmt"
+-	"sort"
+ 	"strings"
+ 
+ 	"github.com/dop251/goja"
+ 	"github.com/dop251/goja_nodejs/require"
+-	gepaopt "github.com/go-go-golems/geppetto/pkg/optimizer/gepa"
++	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
+ 	"github.com/pkg/errors"
+ )
+ 
+@@ -34,7 +33,6 @@ type optimizerPlugin struct {
+ 
+ 	evaluateFn goja.Callable
+ 	datasetFn  goja.Callable
+-	mergeFn    goja.Callable
+ }
+ 
+ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
+@@ -88,17 +86,6 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
+ 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+ 	}
+ 
+-	// merge() is optional.
+-	var mergeFn goja.Callable
+-	for _, key := range []string{"merge", "mergeCandidate", "mergePrompt"} {
+-		if mv := instanceObj.Get(key); mv != nil && !goja.IsUndefined(mv) && !goja.IsNull(mv) {
+-			if fn, ok := goja.AssertFunction(mv); ok {
+-				mergeFn = fn
+-				break
+-			}
+-		}
+-	}
+-
+ 	// dataset() is optional if dataset file is provided, but we’ll attempt to bind it here.
+ 	var datasetFn goja.Callable
+ 	if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+@@ -120,7 +107,6 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
+ 		instance:   instanceObj,
+ 		evaluateFn: evaluateFn,
+ 		datasetFn:  datasetFn,
+-		mergeFn:    mergeFn,
+ 	}
+ 
+ 	return p, meta, nil
+@@ -189,9 +175,7 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
+ 	// handle []interface{} from json.Unmarshal etc.
+ 	if arr2, ok := decoded.([]interface{}); ok {
+ 		out := make([]any, 0, len(arr2))
+-		for _, x := range arr2 {
+-			out = append(out, x)
+-		}
++		out = append(out, arr2...)
+ 		return out, nil
+ 	}
+ 	return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
+@@ -236,60 +220,6 @@ func (p *optimizerPlugin) Evaluate(
+ 	return er, nil
+ }
+ 
+-func (p *optimizerPlugin) HasMerge() bool {
+-	return p != nil && p.mergeFn != nil
+-}
+-
+-func (p *optimizerPlugin) Merge(
+-	in gepaopt.MergeInput,
+-	opts pluginEvaluateOptions,
+-) (string, string, error) {
+-	if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
+-		return "", "", fmt.Errorf("plugin merge: merge() not available")
+-	}
+-
+-	input := map[string]any{
+-		"candidateA": in.ParentA,
+-		"candidateB": in.ParentB,
+-		"paramKey":   in.ParamKey,
+-		"paramA":     in.ParamA,
+-		"paramB":     in.ParamB,
+-		"sideInfoA":  in.SideInfoA,
+-		"sideInfoB":  in.SideInfoB,
+-	}
+-	options := map[string]any{
+-		"profile":       strings.TrimSpace(opts.Profile),
+-		"engineOptions": opts.EngineOptions,
+-		"tags":          opts.Tags,
+-	}
+-
+-	ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+-	if err != nil {
+-		return "", "", errors.Wrap(err, "plugin merge: call failed")
+-	}
+-
+-	decoded, err := decodeJSReturnValue(ret)
+-	if err != nil {
+-		return "", "", errors.Wrap(err, "plugin merge: invalid return value")
+-	}
+-
+-	merged, err := decodeMergeOutput(decoded, in.ParamKey)
+-	if err != nil {
+-		return "", "", err
+-	}
+-
+-	raw := ""
+-	switch x := decoded.(type) {
+-	case string:
+-		raw = x
+-	default:
+-		blob, _ := json.MarshalIndent(decoded, "", "  ")
+-		raw = string(blob)
+-	}
+-
+-	return merged, raw, nil
+-}
+-
+ // decodeJSReturnValue mirrors the cozo runner behavior:
+ // - if JS returns a string, attempt JSON parsing
+ // - if JS returns bytes, attempt JSON parsing
+@@ -322,12 +252,6 @@ func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+ 	switch x := v.(type) {
+ 	case map[string]any:
+ 		return decodeEvalResultFromMap(x)
+-	case map[string]interface{}:
+-		m := map[string]any{}
+-		for k, v := range x {
+-			m[k] = v
+-		}
+-		return decodeEvalResultFromMap(m)
+ 	case float64:
+ 		return gepaopt.EvalResult{Score: x}, nil
+ 	case int:
+@@ -337,77 +261,6 @@ func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+ 	}
+ }
+ 
+-func decodeMergeOutput(v any, paramKey string) (string, error) {
+-	paramKey = strings.TrimSpace(paramKey)
+-	if paramKey == "" {
+-		paramKey = "prompt"
+-	}
+-
+-	readString := func(m map[string]any, key string) string {
+-		vv, ok := m[key]
+-		if !ok || vv == nil {
+-			return ""
+-		}
+-		s, ok := vv.(string)
+-		if !ok {
+-			return ""
+-		}
+-		return strings.TrimSpace(s)
+-	}
+-
+-	switch x := v.(type) {
+-	case string:
+-		out := strings.TrimSpace(x)
+-		if out == "" {
+-			return "", fmt.Errorf("merge returned empty string")
+-		}
+-		return out, nil
+-	case map[string]any:
+-		// Allow {candidate: {...}}.
+-		if candRaw, ok := x["candidate"]; ok && candRaw != nil {
+-			switch cm := candRaw.(type) {
+-			case map[string]any:
+-				if s := readString(cm, paramKey); s != "" {
+-					return s, nil
+-				}
+-			case map[string]interface{}:
+-				m := map[string]any{}
+-				for k, vv := range cm {
+-					m[k] = vv
+-				}
+-				if s := readString(m, paramKey); s != "" {
+-					return s, nil
+-				}
+-			}
+-		}
+-
+-		// Common direct keys.
+-		for _, key := range []string{paramKey, "prompt", "merged", "mergedPrompt", "text"} {
+-			if s := readString(x, key); s != "" {
+-				return s, nil
+-			}
+-		}
+-		return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
+-	case map[string]interface{}:
+-		m := map[string]any{}
+-		for k, vv := range x {
+-			m[k] = vv
+-		}
+-		return decodeMergeOutput(m, paramKey)
+-	default:
+-		return "", fmt.Errorf("merge must return a string or object, got %T", v)
+-	}
+-}
+-
+-func keysOf(m map[string]any) []string {
+-	out := make([]string, 0, len(m))
+-	for k := range m {
+-		out = append(out, k)
+-	}
+-	sort.Strings(out)
+-	return out
+-}
+-
+ func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
+ 	scoreRaw, ok := m["score"]
+ 	if !ok {
+@@ -459,14 +312,6 @@ func decodeObjectiveScores(v any) (gepaopt.ObjectiveScores, error) {
+ 			}
+ 			out[k] = f
+ 		}
+-	case map[string]interface{}:
+-		for k, vv := range x {
+-			f, err := toFloat(vv)
+-			if err != nil {
+-				continue
+-			}
+-			out[k] = f
+-		}
+ 	}
+ 	if len(out) == 0 {
+ 		return nil, fmt.Errorf("empty objective scores")
+@@ -490,7 +335,7 @@ func toFloat(v any) (float64, error) {
+ 		if strings.TrimSpace(x) == "" {
+ 			return 0, fmt.Errorf("empty string")
+ 		}
+-		var num json.Number = json.Number(strings.TrimSpace(x))
++		num := json.Number(strings.TrimSpace(x))
+ 		return num.Float64()
+ 	default:
+ 		return 0, fmt.Errorf("unsupported numeric type %T", v)

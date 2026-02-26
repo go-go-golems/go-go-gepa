@@ -1,0 +1,5 @@
+# scan timestamp
+2026-02-22T21:42:34-05:00
+
+# geppetto references to removed GEPA paths
+pkg/doc/topics/14-js-api-user-guide.md:144:1. `github.com/gepa-ai/gepa/go-gepa-runner/cmd/gepa-runner/scripts/toy_math_optimizer.js`

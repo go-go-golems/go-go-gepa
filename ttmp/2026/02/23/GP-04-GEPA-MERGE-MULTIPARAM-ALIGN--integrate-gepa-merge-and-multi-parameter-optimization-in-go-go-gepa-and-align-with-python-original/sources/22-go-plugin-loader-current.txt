@@ -1,0 +1,346 @@
+     1	package main
+     2	
+     3	import (
+     4		"encoding/json"
+     5		"fmt"
+     6		"strings"
+     7	
+     8		"github.com/dop251/goja"
+     9		"github.com/dop251/goja_nodejs/require"
+    10		gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
+    11		"github.com/pkg/errors"
+    12	)
+    13	
+    14	const optimizerPluginAPIVersion = "gepa.optimizer/v1"
+    15	
+    16	type optimizerPluginMeta struct {
+    17		APIVersion string
+    18		Kind       string
+    19		ID         string
+    20		Name       string
+    21	}
+    22	
+    23	type pluginEvaluateOptions struct {
+    24		Profile       string
+    25		EngineOptions map[string]any
+    26		Tags          map[string]any
+    27	}
+    28	
+    29	type optimizerPlugin struct {
+    30		rt       *jsRuntime
+    31		meta     optimizerPluginMeta
+    32		instance *goja.Object
+    33	
+    34		evaluateFn goja.Callable
+    35		datasetFn  goja.Callable
+    36	}
+    37	
+    38	func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
+    39		if rt == nil || rt.vm == nil || rt.reqMod == nil {
+    40			return nil, optimizerPluginMeta{}, errors.New("plugin loader: runtime is nil")
+    41		}
+    42		if strings.TrimSpace(absScriptPath) == "" {
+    43			return nil, optimizerPluginMeta{}, errors.New("plugin loader: script path is empty")
+    44		}
+    45	
+    46		// NOTE: require expects absolute path for local files when we use abs path.
+    47		var exported goja.Value
+    48		var err error
+    49		exported, err = rt.reqMod.Require(absScriptPath)
+    50		if err != nil {
+    51			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
+    52		}
+    53	
+    54		descriptorObj := exported.ToObject(rt.vm)
+    55		if descriptorObj == nil {
+    56			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: script module did not export an object descriptor")
+    57		}
+    58	
+    59		meta, err := decodeOptimizerPluginMeta(descriptorObj)
+    60		if err != nil {
+    61			return nil, optimizerPluginMeta{}, err
+    62		}
+    63	
+    64		createVal := descriptorObj.Get("create")
+    65		createFn, ok := goja.AssertFunction(createVal)
+    66		if !ok {
+    67			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+    68		}
+    69	
+    70		if hostContext == nil {
+    71			hostContext = map[string]any{}
+    72		}
+    73	
+    74		instanceVal, err := createFn(descriptorObj, rt.vm.ToValue(hostContext))
+    75		if err != nil {
+    76			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: descriptor.create failed")
+    77		}
+    78		instanceObj := instanceVal.ToObject(rt.vm)
+    79		if instanceObj == nil {
+    80			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must return an object instance")
+    81		}
+    82	
+    83		evaluateVal := instanceObj.Get("evaluate")
+    84		evaluateFn, ok := goja.AssertFunction(evaluateVal)
+    85		if !ok {
+    86			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+    87		}
+    88	
+    89		// dataset() is optional if dataset file is provided, but we’ll attempt to bind it here.
+    90		var datasetFn goja.Callable
+    91		if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+    92			if fn, ok := goja.AssertFunction(dv); ok {
+    93				datasetFn = fn
+    94			}
+    95		}
+    96		if datasetFn == nil {
+    97			if dv := instanceObj.Get("getDataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+    98				if fn, ok := goja.AssertFunction(dv); ok {
+    99					datasetFn = fn
+   100				}
+   101			}
+   102		}
+   103	
+   104		p := &optimizerPlugin{
+   105			rt:         rt,
+   106			meta:       meta,
+   107			instance:   instanceObj,
+   108			evaluateFn: evaluateFn,
+   109			datasetFn:  datasetFn,
+   110		}
+   111	
+   112		return p, meta, nil
+   113	}
+   114	
+   115	func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
+   116	
+   117		apiVersion := strings.TrimSpace(descriptorObj.Get("apiVersion").String())
+   118		kind := strings.TrimSpace(descriptorObj.Get("kind").String())
+   119		id := strings.TrimSpace(descriptorObj.Get("id").String())
+   120		name := strings.TrimSpace(descriptorObj.Get("name").String())
+   121	
+   122		if apiVersion == "" {
+   123			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.apiVersion is required")
+   124		}
+   125		if apiVersion != optimizerPluginAPIVersion {
+   126			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: unsupported apiVersion %q (expected %q)", apiVersion, optimizerPluginAPIVersion)
+   127		}
+   128		if kind != "optimizer" {
+   129			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.kind must be %q", "optimizer")
+   130		}
+   131		if id == "" {
+   132			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.id is required")
+   133		}
+   134		if name == "" {
+   135			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.name is required")
+   136		}
+   137	
+   138		// Sanity: ensure descriptor.create exists.
+   139		if cv := descriptorObj.Get("create"); cv == nil || goja.IsUndefined(cv) || goja.IsNull(cv) {
+   140			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create is required")
+   141		}
+   142		if _, ok := goja.AssertFunction(descriptorObj.Get("create")); !ok {
+   143			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+   144		}
+   145	
+   146		return optimizerPluginMeta{
+   147			APIVersion: apiVersion,
+   148			Kind:       kind,
+   149			ID:         id,
+   150			Name:       name,
+   151		}, nil
+   152	}
+   153	
+   154	func (p *optimizerPlugin) Dataset() ([]any, error) {
+   155		if p == nil || p.rt == nil || p.instance == nil {
+   156			return nil, fmt.Errorf("plugin dataset: plugin not initialized")
+   157		}
+   158		if p.datasetFn == nil {
+   159			return nil, fmt.Errorf("plugin dataset: instance.dataset() not found (provide --dataset)")
+   160		}
+   161	
+   162		ret, err := p.datasetFn(p.instance, goja.Undefined())
+   163		if err != nil {
+   164			return nil, errors.Wrap(err, "plugin dataset: call failed")
+   165		}
+   166	
+   167		decoded, err := decodeJSReturnValue(ret)
+   168		if err != nil {
+   169			return nil, errors.Wrap(err, "plugin dataset: invalid return value")
+   170		}
+   171		arr, ok := decoded.([]any)
+   172		if ok {
+   173			return arr, nil
+   174		}
+   175		// handle []interface{} from json.Unmarshal etc.
+   176		if arr2, ok := decoded.([]interface{}); ok {
+   177			out := make([]any, 0, len(arr2))
+   178			out = append(out, arr2...)
+   179			return out, nil
+   180		}
+   181		return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
+   182	}
+   183	
+   184	func (p *optimizerPlugin) Evaluate(
+   185		candidate gepaopt.Candidate,
+   186		exampleIndex int,
+   187		example any,
+   188		opts pluginEvaluateOptions,
+   189	) (gepaopt.EvalResult, error) {
+   190		if p == nil || p.rt == nil || p.instance == nil || p.evaluateFn == nil {
+   191			return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
+   192		}
+   193	
+   194		input := map[string]any{
+   195			"candidate":    candidate,
+   196			"example":      example,
+   197			"exampleIndex": exampleIndex,
+   198		}
+   199		options := map[string]any{
+   200			"profile":       strings.TrimSpace(opts.Profile),
+   201			"engineOptions": opts.EngineOptions,
+   202			"tags":          opts.Tags,
+   203		}
+   204	
+   205		ret, err := p.evaluateFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   206		if err != nil {
+   207			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
+   208		}
+   209	
+   210		decoded, err := decodeJSReturnValue(ret)
+   211		if err != nil {
+   212			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: invalid return value")
+   213		}
+   214	
+   215		er, err := decodeEvalResult(decoded)
+   216		if err != nil {
+   217			return gepaopt.EvalResult{}, err
+   218		}
+   219		er.Raw = decoded
+   220		return er, nil
+   221	}
+   222	
+   223	// decodeJSReturnValue mirrors the cozo runner behavior:
+   224	// - if JS returns a string, attempt JSON parsing
+   225	// - if JS returns bytes, attempt JSON parsing
+   226	// - otherwise, return exported value
+   227	func decodeJSReturnValue(ret goja.Value) (any, error) {
+   228		if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+   229			return nil, fmt.Errorf("returned null/undefined")
+   230		}
+   231		if raw, ok := ret.Export().(string); ok {
+   232			if strings.TrimSpace(raw) == "" {
+   233				return nil, fmt.Errorf("returned empty string")
+   234			}
+   235			var jsonValue any
+   236			if err := json.Unmarshal([]byte(raw), &jsonValue); err == nil {
+   237				return jsonValue, nil
+   238			}
+   239			return raw, nil
+   240		}
+   241		if bytes, ok := ret.Export().([]uint8); ok {
+   242			var jsonValue any
+   243			if err := json.Unmarshal(bytes, &jsonValue); err == nil {
+   244				return jsonValue, nil
+   245			}
+   246			return bytes, nil
+   247		}
+   248		return ret.Export(), nil
+   249	}
+   250	
+   251	func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+   252		switch x := v.(type) {
+   253		case map[string]any:
+   254			return decodeEvalResultFromMap(x)
+   255		case float64:
+   256			return gepaopt.EvalResult{Score: x}, nil
+   257		case int:
+   258			return gepaopt.EvalResult{Score: float64(x)}, nil
+   259		default:
+   260			return gepaopt.EvalResult{}, fmt.Errorf("evaluator must return an object with {score}, got %T", v)
+   261		}
+   262	}
+   263	
+   264	func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
+   265		scoreRaw, ok := m["score"]
+   266		if !ok {
+   267			// allow "value" fallback
+   268			scoreRaw, ok = m["value"]
+   269		}
+   270		if !ok {
+   271			return gepaopt.EvalResult{}, fmt.Errorf("evaluator return value missing required field: score")
+   272		}
+   273	
+   274		score, err := toFloat(scoreRaw)
+   275		if err != nil {
+   276			return gepaopt.EvalResult{}, fmt.Errorf("invalid score: %w", err)
+   277		}
+   278	
+   279		var objScores gepaopt.ObjectiveScores
+   280		for _, key := range []string{"objectiveScores", "objectives"} {
+   281			if v, ok := m[key]; ok && v != nil {
+   282				objScores, _ = decodeObjectiveScores(v)
+   283				break
+   284			}
+   285		}
+   286	
+   287		out := gepaopt.EvalResult{
+   288			Score:      score,
+   289			Objectives: objScores,
+   290			Output:     m["output"],
+   291			Feedback:   m["feedback"],
+   292			Trace:      m["trace"],
+   293		}
+   294	
+   295		if notes, ok := m["notes"].(string); ok {
+   296			out.EvaluatorNotes = notes
+   297		} else if notes, ok := m["evaluatorNotes"].(string); ok {
+   298			out.EvaluatorNotes = notes
+   299		}
+   300	
+   301		return out, nil
+   302	}
+   303	
+   304	func decodeObjectiveScores(v any) (gepaopt.ObjectiveScores, error) {
+   305		out := gepaopt.ObjectiveScores{}
+   306		switch x := v.(type) {
+   307		case map[string]any:
+   308			for k, vv := range x {
+   309				f, err := toFloat(vv)
+   310				if err != nil {
+   311					continue
+   312				}
+   313				out[k] = f
+   314			}
+   315		}
+   316		if len(out) == 0 {
+   317			return nil, fmt.Errorf("empty objective scores")
+   318		}
+   319		return out, nil
+   320	}
+   321	
+   322	func toFloat(v any) (float64, error) {
+   323		switch x := v.(type) {
+   324		case float64:
+   325			return x, nil
+   326		case float32:
+   327			return float64(x), nil
+   328		case int:
+   329			return float64(x), nil
+   330		case int64:
+   331			return float64(x), nil
+   332		case json.Number:
+   333			return x.Float64()
+   334		case string:
+   335			if strings.TrimSpace(x) == "" {
+   336				return 0, fmt.Errorf("empty string")
+   337			}
+   338			num := json.Number(strings.TrimSpace(x))
+   339			return num.Float64()
+   340		default:
+   341			return 0, fmt.Errorf("unsupported numeric type %T", v)
+   342		}
+   343	}
+   344	
+   345	// Ensure the require package is linked (some Go compilers prune unused imports).
+   346	var _ = require.Require

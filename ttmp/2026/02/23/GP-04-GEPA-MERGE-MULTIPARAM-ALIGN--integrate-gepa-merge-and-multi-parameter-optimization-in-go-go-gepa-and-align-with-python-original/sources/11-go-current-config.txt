@@ -1,0 +1,67 @@
+     1	package gepa
+     2	
+     3	import "time"
+     4	
+     5	// Config controls the GEPA-style optimization loop.
+     6	type Config struct {
+     7		// Maximum number of evaluator calls. In prompt optimization, a “rollout”
+     8		// usually corresponds to one (candidate, example) evaluation.
+     9		MaxEvalCalls int
+    10	
+    11		// BatchSize is the number of examples sampled per iteration for mutation testing.
+    12		BatchSize int
+    13	
+    14		// FrontierSize caps the number of candidates kept on the Pareto frontier
+    15		// in the single-objective fallback path.
+    16		FrontierSize int
+    17	
+    18		// RandomSeed controls stochastic selection and batching.
+    19		// If 0, the optimizer will use time-based entropy.
+    20		RandomSeed int64
+    21	
+    22		// ReflectionSystemPrompt is the system prompt used for the reflection LLM.
+    23		ReflectionSystemPrompt string
+    24	
+    25		// ReflectionPromptTemplate must include "<curr_param>" and "<side_info>" placeholders.
+    26		ReflectionPromptTemplate string
+    27	
+    28		// Objective is an optional natural-language description of what we are optimizing for.
+    29		Objective string
+    30	
+    31		// MaxSideInfoChars caps the amount of formatted side-info passed to the reflector.
+    32		// 0 means “no explicit cap”.
+    33		MaxSideInfoChars int
+    34	
+    35		// Epsilon is the minimum improvement required to accept a child over its parent
+    36		// in the single-objective setting. 0 is fine for most use.
+    37		Epsilon float64
+    38	
+    39		// Now is injectable for tests. If nil, time.Now is used.
+    40		Now func() time.Time
+    41	}
+    42	
+    43	func (c Config) withDefaults() Config {
+    44		out := c
+    45		if out.MaxEvalCalls <= 0 {
+    46			out.MaxEvalCalls = 200
+    47		}
+    48		if out.BatchSize <= 0 {
+    49			out.BatchSize = 8
+    50		}
+    51		if out.FrontierSize <= 0 {
+    52			out.FrontierSize = 10
+    53		}
+    54		if out.RandomSeed == 0 {
+    55			out.RandomSeed = time.Now().UnixNano()
+    56		}
+    57		if out.ReflectionSystemPrompt == "" {
+    58			out.ReflectionSystemPrompt = "You are an expert prompt engineer."
+    59		}
+    60		if out.ReflectionPromptTemplate == "" {
+    61			out.ReflectionPromptTemplate = DefaultReflectionPromptTemplate
+    62		}
+    63		if out.Now == nil {
+    64			out.Now = time.Now
+    65		}
+    66		return out
+    67	}

@@ -1,0 +1,2 @@
+ok  	github.com/gepa-ai/gepa/go-gepa-runner/cmd/gepa-runner	0.067s
+ok  	github.com/gepa-ai/gepa/go-gepa-runner/pkg/optimizer/gepa	0.003s

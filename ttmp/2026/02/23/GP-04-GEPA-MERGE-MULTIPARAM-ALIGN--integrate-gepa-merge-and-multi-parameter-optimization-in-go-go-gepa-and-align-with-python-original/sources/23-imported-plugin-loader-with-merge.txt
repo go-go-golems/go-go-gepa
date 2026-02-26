@@ -1,0 +1,501 @@
+     1	package main
+     2	
+     3	import (
+     4		"encoding/json"
+     5		"fmt"
+     6		"sort"
+     7		"strings"
+     8	
+     9		"github.com/dop251/goja"
+    10		"github.com/dop251/goja_nodejs/require"
+    11		gepaopt "github.com/go-go-golems/geppetto/pkg/optimizer/gepa"
+    12		"github.com/pkg/errors"
+    13	)
+    14	
+    15	const optimizerPluginAPIVersion = "gepa.optimizer/v1"
+    16	
+    17	type optimizerPluginMeta struct {
+    18		APIVersion string
+    19		Kind       string
+    20		ID         string
+    21		Name       string
+    22	}
+    23	
+    24	type pluginEvaluateOptions struct {
+    25		Profile       string
+    26		EngineOptions map[string]any
+    27		Tags          map[string]any
+    28	}
+    29	
+    30	type optimizerPlugin struct {
+    31		rt       *jsRuntime
+    32		meta     optimizerPluginMeta
+    33		instance *goja.Object
+    34	
+    35		evaluateFn goja.Callable
+    36		datasetFn  goja.Callable
+    37		mergeFn    goja.Callable
+    38	}
+    39	
+    40	func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
+    41		if rt == nil || rt.vm == nil || rt.reqMod == nil {
+    42			return nil, optimizerPluginMeta{}, errors.New("plugin loader: runtime is nil")
+    43		}
+    44		if strings.TrimSpace(absScriptPath) == "" {
+    45			return nil, optimizerPluginMeta{}, errors.New("plugin loader: script path is empty")
+    46		}
+    47	
+    48		// NOTE: require expects absolute path for local files when we use abs path.
+    49		var exported goja.Value
+    50		var err error
+    51		exported, err = rt.reqMod.Require(absScriptPath)
+    52		if err != nil {
+    53			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
+    54		}
+    55	
+    56		descriptorObj := exported.ToObject(rt.vm)
+    57		if descriptorObj == nil {
+    58			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: script module did not export an object descriptor")
+    59		}
+    60	
+    61		meta, err := decodeOptimizerPluginMeta(descriptorObj)
+    62		if err != nil {
+    63			return nil, optimizerPluginMeta{}, err
+    64		}
+    65	
+    66		createVal := descriptorObj.Get("create")
+    67		createFn, ok := goja.AssertFunction(createVal)
+    68		if !ok {
+    69			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+    70		}
+    71	
+    72		if hostContext == nil {
+    73			hostContext = map[string]any{}
+    74		}
+    75	
+    76		instanceVal, err := createFn(descriptorObj, rt.vm.ToValue(hostContext))
+    77		if err != nil {
+    78			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: descriptor.create failed")
+    79		}
+    80		instanceObj := instanceVal.ToObject(rt.vm)
+    81		if instanceObj == nil {
+    82			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must return an object instance")
+    83		}
+    84	
+    85		evaluateVal := instanceObj.Get("evaluate")
+    86		evaluateFn, ok := goja.AssertFunction(evaluateVal)
+    87		if !ok {
+    88			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+    89		}
+    90	
+    91		// merge() is optional.
+    92		var mergeFn goja.Callable
+    93		for _, key := range []string{"merge", "mergeCandidate", "mergePrompt"} {
+    94			if mv := instanceObj.Get(key); mv != nil && !goja.IsUndefined(mv) && !goja.IsNull(mv) {
+    95				if fn, ok := goja.AssertFunction(mv); ok {
+    96					mergeFn = fn
+    97					break
+    98				}
+    99			}
+   100		}
+   101	
+   102		// dataset() is optional if dataset file is provided, but we’ll attempt to bind it here.
+   103		var datasetFn goja.Callable
+   104		if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+   105			if fn, ok := goja.AssertFunction(dv); ok {
+   106				datasetFn = fn
+   107			}
+   108		}
+   109		if datasetFn == nil {
+   110			if dv := instanceObj.Get("getDataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+   111				if fn, ok := goja.AssertFunction(dv); ok {
+   112					datasetFn = fn
+   113				}
+   114			}
+   115		}
+   116	
+   117		p := &optimizerPlugin{
+   118			rt:         rt,
+   119			meta:       meta,
+   120			instance:   instanceObj,
+   121			evaluateFn: evaluateFn,
+   122			datasetFn:  datasetFn,
+   123			mergeFn:    mergeFn,
+   124		}
+   125	
+   126		return p, meta, nil
+   127	}
+   128	
+   129	func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
+   130	
+   131		apiVersion := strings.TrimSpace(descriptorObj.Get("apiVersion").String())
+   132		kind := strings.TrimSpace(descriptorObj.Get("kind").String())
+   133		id := strings.TrimSpace(descriptorObj.Get("id").String())
+   134		name := strings.TrimSpace(descriptorObj.Get("name").String())
+   135	
+   136		if apiVersion == "" {
+   137			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.apiVersion is required")
+   138		}
+   139		if apiVersion != optimizerPluginAPIVersion {
+   140			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: unsupported apiVersion %q (expected %q)", apiVersion, optimizerPluginAPIVersion)
+   141		}
+   142		if kind != "optimizer" {
+   143			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.kind must be %q", "optimizer")
+   144		}
+   145		if id == "" {
+   146			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.id is required")
+   147		}
+   148		if name == "" {
+   149			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.name is required")
+   150		}
+   151	
+   152		// Sanity: ensure descriptor.create exists.
+   153		if cv := descriptorObj.Get("create"); cv == nil || goja.IsUndefined(cv) || goja.IsNull(cv) {
+   154			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create is required")
+   155		}
+   156		if _, ok := goja.AssertFunction(descriptorObj.Get("create")); !ok {
+   157			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+   158		}
+   159	
+   160		return optimizerPluginMeta{
+   161			APIVersion: apiVersion,
+   162			Kind:       kind,
+   163			ID:         id,
+   164			Name:       name,
+   165		}, nil
+   166	}
+   167	
+   168	func (p *optimizerPlugin) Dataset() ([]any, error) {
+   169		if p == nil || p.rt == nil || p.instance == nil {
+   170			return nil, fmt.Errorf("plugin dataset: plugin not initialized")
+   171		}
+   172		if p.datasetFn == nil {
+   173			return nil, fmt.Errorf("plugin dataset: instance.dataset() not found (provide --dataset)")
+   174		}
+   175	
+   176		ret, err := p.datasetFn(p.instance, goja.Undefined())
+   177		if err != nil {
+   178			return nil, errors.Wrap(err, "plugin dataset: call failed")
+   179		}
+   180	
+   181		decoded, err := decodeJSReturnValue(ret)
+   182		if err != nil {
+   183			return nil, errors.Wrap(err, "plugin dataset: invalid return value")
+   184		}
+   185		arr, ok := decoded.([]any)
+   186		if ok {
+   187			return arr, nil
+   188		}
+   189		// handle []interface{} from json.Unmarshal etc.
+   190		if arr2, ok := decoded.([]interface{}); ok {
+   191			out := make([]any, 0, len(arr2))
+   192			for _, x := range arr2 {
+   193				out = append(out, x)
+   194			}
+   195			return out, nil
+   196		}
+   197		return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
+   198	}
+   199	
+   200	func (p *optimizerPlugin) Evaluate(
+   201		candidate gepaopt.Candidate,
+   202		exampleIndex int,
+   203		example any,
+   204		opts pluginEvaluateOptions,
+   205	) (gepaopt.EvalResult, error) {
+   206		if p == nil || p.rt == nil || p.instance == nil || p.evaluateFn == nil {
+   207			return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
+   208		}
+   209	
+   210		input := map[string]any{
+   211			"candidate":    candidate,
+   212			"example":      example,
+   213			"exampleIndex": exampleIndex,
+   214		}
+   215		options := map[string]any{
+   216			"profile":       strings.TrimSpace(opts.Profile),
+   217			"engineOptions": opts.EngineOptions,
+   218			"tags":          opts.Tags,
+   219		}
+   220	
+   221		ret, err := p.evaluateFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   222		if err != nil {
+   223			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
+   224		}
+   225	
+   226		decoded, err := decodeJSReturnValue(ret)
+   227		if err != nil {
+   228			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: invalid return value")
+   229		}
+   230	
+   231		er, err := decodeEvalResult(decoded)
+   232		if err != nil {
+   233			return gepaopt.EvalResult{}, err
+   234		}
+   235		er.Raw = decoded
+   236		return er, nil
+   237	}
+   238	
+   239	func (p *optimizerPlugin) HasMerge() bool {
+   240		return p != nil && p.mergeFn != nil
+   241	}
+   242	
+   243	func (p *optimizerPlugin) Merge(
+   244		in gepaopt.MergeInput,
+   245		opts pluginEvaluateOptions,
+   246	) (string, string, error) {
+   247		if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
+   248			return "", "", fmt.Errorf("plugin merge: merge() not available")
+   249		}
+   250	
+   251		input := map[string]any{
+   252			"candidateA": in.ParentA,
+   253			"candidateB": in.ParentB,
+   254			"paramKey":   in.ParamKey,
+   255			"paramA":     in.ParamA,
+   256			"paramB":     in.ParamB,
+   257			"sideInfoA":  in.SideInfoA,
+   258			"sideInfoB":  in.SideInfoB,
+   259		}
+   260		options := map[string]any{
+   261			"profile":       strings.TrimSpace(opts.Profile),
+   262			"engineOptions": opts.EngineOptions,
+   263			"tags":          opts.Tags,
+   264		}
+   265	
+   266		ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   267		if err != nil {
+   268			return "", "", errors.Wrap(err, "plugin merge: call failed")
+   269		}
+   270	
+   271		decoded, err := decodeJSReturnValue(ret)
+   272		if err != nil {
+   273			return "", "", errors.Wrap(err, "plugin merge: invalid return value")
+   274		}
+   275	
+   276		merged, err := decodeMergeOutput(decoded, in.ParamKey)
+   277		if err != nil {
+   278			return "", "", err
+   279		}
+   280	
+   281		raw := ""
+   282		switch x := decoded.(type) {
+   283		case string:
+   284			raw = x
+   285		default:
+   286			blob, _ := json.MarshalIndent(decoded, "", "  ")
+   287			raw = string(blob)
+   288		}
+   289	
+   290		return merged, raw, nil
+   291	}
+   292	
+   293	// decodeJSReturnValue mirrors the cozo runner behavior:
+   294	// - if JS returns a string, attempt JSON parsing
+   295	// - if JS returns bytes, attempt JSON parsing
+   296	// - otherwise, return exported value
+   297	func decodeJSReturnValue(ret goja.Value) (any, error) {
+   298		if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+   299			return nil, fmt.Errorf("returned null/undefined")
+   300		}
+   301		if raw, ok := ret.Export().(string); ok {
+   302			if strings.TrimSpace(raw) == "" {
+   303				return nil, fmt.Errorf("returned empty string")
+   304			}
+   305			var jsonValue any
+   306			if err := json.Unmarshal([]byte(raw), &jsonValue); err == nil {
+   307				return jsonValue, nil
+   308			}
+   309			return raw, nil
+   310		}
+   311		if bytes, ok := ret.Export().([]uint8); ok {
+   312			var jsonValue any
+   313			if err := json.Unmarshal(bytes, &jsonValue); err == nil {
+   314				return jsonValue, nil
+   315			}
+   316			return bytes, nil
+   317		}
+   318		return ret.Export(), nil
+   319	}
+   320	
+   321	func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+   322		switch x := v.(type) {
+   323		case map[string]any:
+   324			return decodeEvalResultFromMap(x)
+   325		case map[string]interface{}:
+   326			m := map[string]any{}
+   327			for k, v := range x {
+   328				m[k] = v
+   329			}
+   330			return decodeEvalResultFromMap(m)
+   331		case float64:
+   332			return gepaopt.EvalResult{Score: x}, nil
+   333		case int:
+   334			return gepaopt.EvalResult{Score: float64(x)}, nil
+   335		default:
+   336			return gepaopt.EvalResult{}, fmt.Errorf("evaluator must return an object with {score}, got %T", v)
+   337		}
+   338	}
+   339	
+   340	func decodeMergeOutput(v any, paramKey string) (string, error) {
+   341		paramKey = strings.TrimSpace(paramKey)
+   342		if paramKey == "" {
+   343			paramKey = "prompt"
+   344		}
+   345	
+   346		readString := func(m map[string]any, key string) string {
+   347			vv, ok := m[key]
+   348			if !ok || vv == nil {
+   349				return ""
+   350			}
+   351			s, ok := vv.(string)
+   352			if !ok {
+   353				return ""
+   354			}
+   355			return strings.TrimSpace(s)
+   356		}
+   357	
+   358		switch x := v.(type) {
+   359		case string:
+   360			out := strings.TrimSpace(x)
+   361			if out == "" {
+   362				return "", fmt.Errorf("merge returned empty string")
+   363			}
+   364			return out, nil
+   365		case map[string]any:
+   366			// Allow {candidate: {...}}.
+   367			if candRaw, ok := x["candidate"]; ok && candRaw != nil {
+   368				switch cm := candRaw.(type) {
+   369				case map[string]any:
+   370					if s := readString(cm, paramKey); s != "" {
+   371						return s, nil
+   372					}
+   373				case map[string]interface{}:
+   374					m := map[string]any{}
+   375					for k, vv := range cm {
+   376						m[k] = vv
+   377					}
+   378					if s := readString(m, paramKey); s != "" {
+   379						return s, nil
+   380					}
+   381				}
+   382			}
+   383	
+   384			// Common direct keys.
+   385			for _, key := range []string{paramKey, "prompt", "merged", "mergedPrompt", "text"} {
+   386				if s := readString(x, key); s != "" {
+   387					return s, nil
+   388				}
+   389			}
+   390			return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
+   391		case map[string]interface{}:
+   392			m := map[string]any{}
+   393			for k, vv := range x {
+   394				m[k] = vv
+   395			}
+   396			return decodeMergeOutput(m, paramKey)
+   397		default:
+   398			return "", fmt.Errorf("merge must return a string or object, got %T", v)
+   399		}
+   400	}
+   401	
+   402	func keysOf(m map[string]any) []string {
+   403		out := make([]string, 0, len(m))
+   404		for k := range m {
+   405			out = append(out, k)
+   406		}
+   407		sort.Strings(out)
+   408		return out
+   409	}
+   410	
+   411	func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
+   412		scoreRaw, ok := m["score"]
+   413		if !ok {
+   414			// allow "value" fallback
+   415			scoreRaw, ok = m["value"]
+   416		}
+   417		if !ok {
+   418			return gepaopt.EvalResult{}, fmt.Errorf("evaluator return value missing required field: score")
+   419		}
+   420	
+   421		score, err := toFloat(scoreRaw)
+   422		if err != nil {
+   423			return gepaopt.EvalResult{}, fmt.Errorf("invalid score: %w", err)
+   424		}
+   425	
+   426		var objScores gepaopt.ObjectiveScores
+   427		for _, key := range []string{"objectiveScores", "objectives"} {
+   428			if v, ok := m[key]; ok && v != nil {
+   429				objScores, _ = decodeObjectiveScores(v)
+   430				break
+   431			}
+   432		}
+   433	
+   434		out := gepaopt.EvalResult{
+   435			Score:      score,
+   436			Objectives: objScores,
+   437			Output:     m["output"],
+   438			Feedback:   m["feedback"],
+   439			Trace:      m["trace"],
+   440		}
+   441	
+   442		if notes, ok := m["notes"].(string); ok {
+   443			out.EvaluatorNotes = notes
+   444		} else if notes, ok := m["evaluatorNotes"].(string); ok {
+   445			out.EvaluatorNotes = notes
+   446		}
+   447	
+   448		return out, nil
+   449	}
+   450	
+   451	func decodeObjectiveScores(v any) (gepaopt.ObjectiveScores, error) {
+   452		out := gepaopt.ObjectiveScores{}
+   453		switch x := v.(type) {
+   454		case map[string]any:
+   455			for k, vv := range x {
+   456				f, err := toFloat(vv)
+   457				if err != nil {
+   458					continue
+   459				}
+   460				out[k] = f
+   461			}
+   462		case map[string]interface{}:
+   463			for k, vv := range x {
+   464				f, err := toFloat(vv)
+   465				if err != nil {
+   466					continue
+   467				}
+   468				out[k] = f
+   469			}
+   470		}
+   471		if len(out) == 0 {
+   472			return nil, fmt.Errorf("empty objective scores")
+   473		}
+   474		return out, nil
+   475	}
+   476	
+   477	func toFloat(v any) (float64, error) {
+   478		switch x := v.(type) {
+   479		case float64:
+   480			return x, nil
+   481		case float32:
+   482			return float64(x), nil
+   483		case int:
+   484			return float64(x), nil
+   485		case int64:
+   486			return float64(x), nil
+   487		case json.Number:
+   488			return x.Float64()
+   489		case string:
+   490			if strings.TrimSpace(x) == "" {
+   491				return 0, fmt.Errorf("empty string")
+   492			}
+   493			var num json.Number = json.Number(strings.TrimSpace(x))
+   494			return num.Float64()
+   495		default:
+   496			return 0, fmt.Errorf("unsupported numeric type %T", v)
+   497		}
+   498	}
+   499	
+   500	// Ensure the require package is linked (some Go compilers prune unused imports).
+   501	var _ = require.Require

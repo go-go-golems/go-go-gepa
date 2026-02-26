@@ -1,0 +1,4 @@
+# GP-05 evidence collection
+
+- generated_at: 2026-02-24T10:43:50-05:00
+- root: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer

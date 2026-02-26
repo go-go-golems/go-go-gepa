@@ -1,0 +1,181 @@
+   980	                score = result
+   981	                auto_side_info: SideInfo = {}
+   982	                if captured_stdout:
+   983	                    auto_side_info["stdout"] = captured_stdout
+   984	                if captured_stderr:
+   985	                    auto_side_info["stderr"] = captured_stderr
+   986	                if log_output:
+   987	                    auto_side_info["log"] = log_output
+   988	                return score, None, auto_side_info
+   989	
+   990	        self._wrapped = wrapped_evaluator
+   991	
+   992	    def __call__(
+   993	        self, candidate: Candidate, example: object | None = None, **kwargs: Any
+   994	    ) -> tuple[float, Any, SideInfo]:
+   995	        return self._wrapped(candidate, example=example, **kwargs)
+   996	
+   997	
+   998	def optimize_anything(
+   999	    seed_candidate: str | Candidate | None = None,
+  1000	    *,
+  1001	    evaluator: Callable[..., Any],
+  1002	    dataset: list[DataInst] | None = None,
+  1003	    valset: list[DataInst] | None = None,
+  1004	    objective: str | None = None,
+  1005	    background: str | None = None,
+  1006	    config: GEPAConfig | None = None,
+  1007	) -> GEPAResult:
+  1008	    """Optimize any text artifact using LLM-guided search.
+  1009	
+  1010	    This is the main entry point for GEPA.  You declare the **what** — your
+  1011	    artifact, your evaluator, and any domain knowledge — and
+  1012	    ``optimize_anything`` handles the **how**: prompt construction, reflection,
+  1013	    candidate selection, and Pareto-efficient search.
+  1014	
+  1015	    **Three optimization modes** (determined by ``dataset`` / ``valset``):
+  1016	
+  1017	    1. **Single-Task Search** (``dataset=None, valset=None``):
+  1018	       Solve one hard problem.  The candidate *is* the solution.
+  1019	       Evaluator called without ``example``.
+  1020	       *E.g. circle packing, blackbox mathematical optimization.*
+  1021	
+  1022	    2. **Multi-Task Search** (``dataset=<list>, valset=None``):
+  1023	       Solve a batch of related problems with cross-task transfer.
+  1024	       Insights from solving one help solve the others.
+  1025	       ``valset`` defaults to ``dataset``.
+  1026	       *E.g. CUDA kernel generation, multi-aspect SVG optimization.*
+  1027	
+  1028	    3. **Generalization** (``dataset=<list>, valset=<list>``):
+  1029	       Build a skill that transfers to unseen problems.
+  1030	       *E.g. prompt optimization for AIME math, agent architecture evolution
+  1031	       for ARC-AGI, cloud scheduling policy discovery.*
+  1032	
+  1033	    Args:
+  1034	        seed_candidate: Starting point for optimization.
+  1035	
+  1036	            - ``str`` — single text parameter (evaluator receives ``str``).
+  1037	            - ``dict[str, str]`` — named parameters (evaluator receives the dict).
+  1038	            - ``None`` — **seedless mode**: the reflection LLM generates the
+  1039	              initial candidate from ``objective`` (and optionally ``background``
+  1040	              / ``dataset``).  Requires ``objective``.  Useful for creative or
+  1041	              exploratory tasks where you know *what good looks like* but not
+  1042	              where to begin.
+  1043	
+  1044	        evaluator: Scoring function.  Returns ``(score, side_info)`` or ``score``.
+  1045	            See :class:`Evaluator`.  Diagnostic output via ``oa.log()`` is
+  1046	            automatically captured as Actionable Side Information (ASI).
+  1047	            For richer diagnostics, return a ``(score, dict)`` tuple with
+  1048	            structured feedback, error messages, or even rendered images
+  1049	            (via :class:`~gepa.Image`).
+  1050	        dataset: Examples for multi-task or generalization modes.
+  1051	            ``None`` = single-task search mode.
+  1052	        valset: Held-out validation set for generalization mode.
+  1053	            ``None`` = defaults to ``dataset`` (multi-task search).
+  1054	        objective: Natural-language goal for the reflection LLM (e.g.
+  1055	            ``"Generate prompts that solve competition math problems."``).
+  1056	        background: Domain knowledge, constraints, or strategies for the
+  1057	            reflection LLM.
+  1058	        config: Full configuration.  See :class:`GEPAConfig`.
+  1059	
+  1060	    Returns:
+  1061	        :class:`~gepa.core.result.GEPAResult` — access ``result.best_candidate``
+  1062	        for the optimized parameter(s) and the full optimization history.
+  1063	
+  1064	    Examples:
+  1065	
+  1066	        Single-task search (circle packing)::
+  1067	
+  1068	            import gepa.optimize_anything as oa
+  1069	
+  1070	            def evaluate(candidate: str) -> float:
+  1071	                result = run_code(candidate)
+  1072	                oa.log(f"Score: {result.score}, Overlaps: {result.overlaps}")
+  1073	                return result.score
+  1074	
+  1075	            result = optimize_anything(
+  1076	                seed_candidate="def pack_circles(): ...",
+  1077	                evaluator=evaluate,
+  1078	                objective="Maximize the sum of radii for n circles in a unit square.",
+  1079	                config=GEPAConfig(engine=EngineConfig(max_metric_calls=500)),
+  1080	            )
+  1081	
+  1082	        Multi-task search (CUDA kernels)::
+  1083	
+  1084	            result = optimize_anything(
+  1085	                seed_candidate={"prompt": "Write an optimized CUDA kernel."},
+  1086	                evaluator=kernel_evaluator,
+  1087	                dataset=kernel_problems,       # batch of related problems
+  1088	                objective="Generate prompts that produce fast, correct CUDA kernels.",
+  1089	                config=GEPAConfig(engine=EngineConfig(max_metric_calls=300)),
+  1090	            )
+  1091	
+  1092	        Generalization (prompt optimization for math)::
+  1093	
+  1094	            result = optimize_anything(
+  1095	                seed_candidate={"prompt": "Solve this math problem step by step:"},
+  1096	                evaluator=math_evaluator,
+  1097	                dataset=train_problems,        # train on these
+  1098	                valset=val_problems,           # must generalize to these
+  1099	                objective="Generate system prompts that improve math reasoning.",
+  1100	                config=GEPAConfig(engine=EngineConfig(max_metric_calls=200)),
+  1101	            )
+  1102	
+  1103	        Seedless mode (no starting artifact)::
+  1104	
+  1105	            result = optimize_anything(
+  1106	                seed_candidate=None,           # LLM writes the first draft
+  1107	                evaluator=evaluate_3d_render,
+  1108	                dataset=visual_aspects,
+  1109	                objective="Optimize a Python program to generate a 3D unicorn.",
+  1110	                background="Use build123d for CSG geometry, export to STL, render with pyrender.",
+  1111	            )
+  1112	    """
+  1113	    # Use default config if not provided
+  1114	    if config is None:
+  1115	        config = GEPAConfig()
+  1116	
+  1117	    # Detect seed generation mode: when seed_candidate is None, the LLM
+  1118	    # will generate the initial candidate from the objective.
+  1119	    needs_seed_generation = False
+  1120	    if seed_candidate is None:
+  1121	        needs_seed_generation = True
+  1122	        str_candidate_mode = True
+  1123	        if not objective or not objective.strip():
+  1124	            raise ValueError(
+  1125	                "'objective' is required when seed_candidate is None. "
+  1126	                "The reflection LLM needs the objective to generate an initial candidate."
+  1127	            )
+  1128	        seed_candidate = {_STR_CANDIDATE_KEY: ""}  # placeholder until LLM generates it
+  1129	    else:
+  1130	        # Normalize seed_candidate: str -> {_STR_CANDIDATE_KEY: str}
+  1131	        str_candidate_mode = isinstance(seed_candidate, str)
+  1132	        if isinstance(seed_candidate, str):
+  1133	            seed_candidate = {_STR_CANDIDATE_KEY: seed_candidate}
+  1134	
+  1135	    # Detect single-instance mode: when both dataset=None and valset=None
+  1136	    single_instance_mode = dataset is None and valset is None
+  1137	
+  1138	    # Set reflection_minibatch_size default based on mode (if not explicitly set)
+  1139	    if config.reflection.reflection_minibatch_size is None:
+  1140	        config.reflection.reflection_minibatch_size = 1 if single_instance_mode else 3
+  1141	
+  1142	    # Handle single-instance mode: when both dataset=None and valset=None, create a
+  1143	    # dataset with a single sentinel element. The evaluator will be called
+  1144	    # without the example parameter.
+  1145	    if single_instance_mode:
+  1146	        effective_dataset: list[DataInst] = [_SINGLE_INSTANCE_SENTINEL]  # type: ignore[list-item]
+  1147	    else:
+  1148	        effective_dataset = dataset if dataset is not None else [None]  # type: ignore[list-item]
+  1149	
+  1150	    # Wrap the evaluator to handle signature normalization, log/stdout capture, etc.
+  1151	    wrapped_evaluator = EvaluatorWrapper(
+  1152	        evaluator,
+  1153	        single_instance_mode,
+  1154	        capture_stdio=config.engine.capture_stdio,
+  1155	        str_candidate_mode=str_candidate_mode,
+  1156	        raise_on_exception=config.engine.raise_on_exception,
+  1157	    )
+  1158	
+  1159	    # Resolve cache mode: cache_evaluation controls on/off, cache_evaluation_storage controls where
+  1160	    if not config.engine.cache_evaluation:

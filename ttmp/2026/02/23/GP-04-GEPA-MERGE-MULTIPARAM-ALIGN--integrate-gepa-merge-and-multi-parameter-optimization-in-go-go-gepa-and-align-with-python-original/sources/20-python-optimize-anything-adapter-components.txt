@@ -1,0 +1,58 @@
+   480	                    best_candidate = refined_candidate_dict  # Track the actual candidate dict
+   481	                    best_side_info = refined_eval_side_info
+   482	                    current_params = parsed_refined
+   483	                else:
+   484	                    # Stop when no improvement
+   485	                    break
+   486	
+   487	            except Exception as e:
+   488	                # Refinement failed, record error and stop
+   489	                all_attempts.append(
+   490	                    {
+   491	                        "iteration": refinement_iter + 1,
+   492	                        "error": str(e),
+   493	                        "score": -1e9,
+   494	                    }
+   495	                )
+   496	                break
+   497	
+   498	        return best_score, best_candidate, best_side_info, all_attempts
+   499	
+   500	    def _format_all_attempts_feedback(self, all_attempts: list[dict]) -> str:
+   501	        """Format all attempts (including original) into readable feedback for the refiner LLM.
+   502	
+   503	        This provides the refiner with full history of optimization attempts,
+   504	        allowing it to understand the progression and avoid repeating failed approaches.
+   505	        """
+   506	        return json.dumps(all_attempts, indent=2, default=str)
+   507	
+   508	    def make_reflective_dataset(
+   509	        self,
+   510	        candidate: dict[str, str],
+   511	        eval_batch: EvaluationBatch,
+   512	        components_to_update: list[str],
+   513	    ) -> Mapping[str, Sequence[Mapping[str, Any]]]:
+   514	        """Format evaluation results into per-component reflection datasets.
+   515	
+   516	        For each component being updated, produces a list of dicts (one per
+   517	        example) combining shared SideInfo fields with any
+   518	        ``<component>_specific_info`` data.  The ``"scores"`` key is renamed
+   519	        to ``"Scores (Higher is Better)"`` for clarity in the LLM prompt.
+   520	        """
+   521	        scores, side_infos = eval_batch.scores, eval_batch.trajectories
+   522	        assert side_infos is not None
+   523	        ret: dict[str, list[dict[str, Any]]] = {}
+   524	        for component_name in components_to_update:
+   525	            ret[component_name] = []
+   526	            for score, side_info in zip(scores, side_infos, strict=False):
+   527	                ret[component_name].append({})
+   528	                for k, v in side_info.items():
+   529	                    if k == "scores":
+   530	                        ret[component_name][-1]["Scores (Higher is Better)"] = v
+   531	                    elif not k.endswith("_specific_info"):
+   532	                        ret[component_name][-1][k] = v
+   533	                    elif k == f"{component_name}_specific_info":
+   534	                        ret[component_name][-1].update(v)
+   535	                    else:
+   536	                        continue
+   537	        return ret
