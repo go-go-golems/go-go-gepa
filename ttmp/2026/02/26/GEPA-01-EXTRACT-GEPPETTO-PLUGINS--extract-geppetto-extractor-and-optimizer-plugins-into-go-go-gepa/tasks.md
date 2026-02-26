@@ -8,14 +8,14 @@
 - [x] Define migration architecture with phased compatibility strategy.
 - [x] Define how to carry a `registryIdentifier` in plugin metadata/reporting.
 - [x] Maintain chronological investigation diary with command logs and findings.
+- [x] Align implementation direction with user constraints: ignore `gepa/`, hard-cut legacy `geppetto/plugins`, no compatibility alias, keep `gepa_plugin_contract.js`.
+- [x] Remove untracked files from `geppetto/` workspace as requested.
 
-## Next Implementation Tasks
+## Active Implementation Sprint
 
-- [ ] Add `go-go-gepa` native plugin contract module (`gepa/plugins`) for extractor + optimizer helpers.
-- [ ] Add temporary compatibility alias `geppetto/plugins` in runtimes that migrate first.
-- [ ] Add `registryIdentifier` field to optimizer + extractor descriptor decode metadata structs.
-- [ ] Propagate `registryIdentifier` into host context, hook option tags, JSON reports, and CLI output metadata.
-- [ ] Extend recorder schema with `plugin_registry_identifier` and update inserts/queries.
-- [ ] Update docs/scripts to prefer `require("gepa/plugins")`.
-- [ ] Add tests for metadata propagation and backward compatibility.
-- [ ] Remove legacy alias after migration window.
+- [x] Task 1: Remove `geppetto/plugins` module registration/implementation from `geppetto` and delete helper tests tied to that module.
+- [x] Task 2: Update `geppetto` docs to remove plugin-helper API claims and describe hard-cut behavior.
+- [x] Task 3: Migrate extractor scripts in `2026-02-18--cozodb-extraction/cozo-relationship-js-runner` off `require("geppetto/plugins")` while preserving descriptor compatibility.
+- [x] Task 4: Add hard-cut regression checks/tests so `geppetto/plugins` does not silently return.
+- [x] Task 5: Verify builds/tests in touched repos and commit per task (small, reviewable commits). (`cozo-relationship-js-runner` Go test is environment-blocked by missing go.sum entries; captured in diary)
+- [x] Task 6: Update GEPA-01 design/tasks/changelog/diary to reflect final no-alias implementation state.

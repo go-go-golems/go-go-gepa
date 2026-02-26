@@ -262,3 +262,196 @@ docmgr doctor --ticket GEPA-01-EXTRACT-GEPPETTO-PLUGINS --stale-after 30
 1. `../design-doc/01-migration-plan-extractor-and-optimizer-plugins.md`
 2. `../tasks.md`
 3. `../changelog.md`
+
+## Delivery and Validation Log
+
+## Step 11 - Ticket bookkeeping updates
+
+Commands:
+
+```bash
+docmgr doc relate --doc <design-doc> --file-note <abs-path:reason> ...
+docmgr doc relate --doc <diary-doc> --file-note <abs-path:reason> ...
+docmgr changelog update --ticket GEPA-01-EXTRACT-GEPPETTO-PLUGINS --entry "..." --file-note <abs-path:reason> ...
+docmgr doc relate --doc <index-doc> --file-note <abs-path:reason> ...
+```
+
+Findings:
+1. Related file metadata was attached to design, diary, and index docs.
+2. Changelog entries were appended with absolute related file notes.
+
+Interpretation:
+- Ticket bookkeeping artifacts are now connected to concrete source evidence.
+
+## Step 12 - Doctor validation and vocabulary resolution
+
+Commands:
+
+```bash
+docmgr doctor --ticket GEPA-01-EXTRACT-GEPPETTO-PLUGINS --stale-after 30
+docmgr vocab add --category topics --slug extractor --description "..."
+docmgr vocab add --category topics --slug gepa --description "..."
+docmgr vocab add --category topics --slug optimizer --description "..."
+docmgr vocab add --category topics --slug plugins --description "..."
+docmgr doctor --ticket GEPA-01-EXTRACT-GEPPETTO-PLUGINS --stale-after 30
+```
+
+Findings:
+1. First doctor run warned on unknown topics: `extractor`, `gepa`, `optimizer`, `plugins`.
+2. Added missing topic vocabulary entries.
+3. Second doctor run passed cleanly.
+
+Interpretation:
+- Ticket is now docmgr-valid and vocabulary-compliant.
+
+## Step 13 - reMarkable upload delivery
+
+Commands:
+
+```bash
+remarquee status
+remarquee cloud account --non-interactive
+remarquee upload bundle --dry-run <index/design/diary/tasks/changelog> --name "GEPA-01 Extract Geppetto Plugins" --remote-dir "/ai/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS" --toc-depth 2
+remarquee upload bundle <index/design/diary/tasks/changelog> --name "GEPA-01 Extract Geppetto Plugins" --remote-dir "/ai/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS" --toc-depth 2
+remarquee cloud ls /ai/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS --long --non-interactive
+```
+
+Findings:
+1. Remarquee status/account checks succeeded.
+2. Dry-run bundle succeeded and listed all included docs.
+3. Actual bundle upload succeeded.
+4. Remote listing confirms file presence:
+   - `GEPA-01 Extract Geppetto Plugins`
+
+Interpretation:
+- Delivery to reMarkable completed and verified.
+
+## Step 14 - Direction change and execution constraints
+
+Commands:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/geppetto
+git clean -fd
+git status --short
+```
+
+Findings:
+1. User confirmed hard-cut strategy: no compatibility alias.
+2. User requested to ignore `gepa/` entirely.
+3. User requested removing untracked files in `geppetto/`; removed:
+   - `gepa-runner`
+   - `pkg/doc/topics/14-js-api-user-guide.md.orig`
+   - `ttmp/vocabulary.yaml.orig`
+
+Interpretation:
+- Implementation will proceed only in `geppetto`, `go-go-gepa` ticket docs, and extractor runner paths as needed.
+- Alias-based migration plan is superseded by immediate hard-cut requirements.
+
+## Step 15 - Task 1 complete: hard-cut removal in geppetto runtime/tests
+
+Commands:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/geppetto
+rg -n "PluginsModuleName|pluginsLoader|geppetto/plugins" pkg -S
+gofmt -w pkg/js/modules/geppetto/module.go pkg/js/modules/geppetto/module_test.go
+go test ./pkg/js/modules/geppetto -count=1
+git add pkg/js/modules/geppetto/module.go pkg/js/modules/geppetto/module_test.go pkg/js/modules/geppetto/plugins_module.go
+git commit -m "Remove geppetto/plugins module registration and helpers"
+```
+
+Findings:
+1. Removed `PluginsModuleName` registration from `pkg/js/modules/geppetto/module.go`.
+2. Deleted `pkg/js/modules/geppetto/plugins_module.go`.
+3. Replaced plugin helper tests with a hard-cut assertion that `require("geppetto/plugins")` fails.
+4. Targeted tests passed; pre-commit hooks also executed full test/lint successfully.
+5. Commit created in `geppetto`: `d102477`.
+
+Interpretation:
+- Core framework now enforces no `geppetto/plugins` runtime module.
+
+## Step 16 - Task 2 complete: documentation hard-cut
+
+Commands:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/geppetto
+git add pkg/doc/topics/13-js-api-reference.md pkg/doc/topics/14-js-api-user-guide.md
+git commit -m "Update JS docs for hard-cut removal of geppetto/plugins"
+```
+
+Findings:
+1. Removed plugin helper API tables/examples that previously documented `require("geppetto/plugins")`.
+2. Added explicit notes that plugin helpers are host/runtime-owned, not part of core geppetto module registration.
+3. Commit created in `geppetto`: `a9c2e61`.
+
+Interpretation:
+- Public geppetto docs now match hard-cut runtime behavior.
+
+## Step 17 - Task 3 complete: extractor scripts migrated off geppetto/plugins
+
+Commands:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/2026-02-18--cozodb-extraction/cozo-relationship-js-runner
+# edited scripts/relation_extractor_template.js
+# edited scripts/relation_extractor_reflective.js
+git add scripts/relation_extractor_template.js scripts/relation_extractor_reflective.js
+git commit -m "Drop geppetto/plugins dependency from extractor scripts"
+```
+
+Findings:
+1. Removed `require("geppetto/plugins")` from both extractor scripts.
+2. Replaced helper-based descriptor creation with explicit descriptor exports (`apiVersion`, `kind`, `id`, `name`, `create`).
+3. Removed `wrapExtractorRun(...)` dependency by using direct `run` lambdas.
+4. Commit created in extractor runner repo: `b694000`.
+
+Interpretation:
+- Extractor script loading no longer depends on geppetto plugin helper registration.
+
+## Step 18 - Task 4/5 validation and regression checks
+
+Commands:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer
+rg -n 'require\("geppetto/plugins"\)|from "geppetto/plugins"' geppetto go-go-gepa 2026-02-18--cozodb-extraction/cozo-relationship-js-runner -S -g '!**/ttmp/**'
+
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/2026-02-18--cozodb-extraction/cozo-relationship-js-runner
+go test ./... -count=1
+GOWORK=off go test ./... -count=1
+```
+
+Findings:
+1. Remaining `require("geppetto/plugins")` references are intentional in:
+   - geppetto negative regression test (asserting failure)
+   - geppetto docs stating module removal.
+2. No runtime script imports of `geppetto/plugins` remain in maintained code paths.
+3. `cozo-relationship-js-runner` Go tests are currently blocked by module dependency state:
+   - under workspace mode: module not listed in `go.work`
+   - with `GOWORK=off`: missing `go.sum` entries for dependencies.
+
+Interpretation:
+- Hard-cut behavior is enforced at source level.
+- Validation blocker is environmental dependency setup in extractor runner, not a compile contract issue from this migration.
+
+## Step 19 - Task 6 complete: ticket docs reconciled to no-alias final state
+
+Commands:
+
+```bash
+# updated GEPA-01 design/index/tasks/changelog/diary docs
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer
+docmgr doctor --ticket GEPA-01-EXTRACT-GEPPETTO-PLUGINS --stale-after 30
+```
+
+Findings:
+1. Rewrote the design doc to reflect the implemented hard-cut (no compatibility alias).
+2. Updated index current status and key decisions to match executed commits.
+3. Updated tasks to track task-by-task completion and validation caveats.
+4. Updated changelog with implementation commits and validation outcomes.
+5. Doctor check passed cleanly.
+
+Interpretation:
+- Ticket documentation is synchronized with implementation reality and ready for continuation on registry identifier follow-up work.

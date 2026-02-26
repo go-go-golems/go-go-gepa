@@ -18,8 +18,8 @@ RelatedFiles:
     - Path: go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/reference/01-investigation-diary.md
       Note: chronological investigation evidence
 ExternalSources: []
-Summary: Ticket index for migrating plugin contract ownership from geppetto into go-go-gepa with registry identifier propagation.
-LastUpdated: 2026-02-26T11:40:46-05:00
+Summary: Ticket index for hard-cut removal of geppetto/plugins and follow-up registry identifier propagation.
+LastUpdated: 2026-02-26T12:34:00-05:00
 WhatFor: Coordinate investigation and implementation planning for plugin contract extraction.
 WhenToUse: Start here to navigate design, diary, tasks, and changelog for this ticket.
 ---
@@ -29,7 +29,7 @@ WhenToUse: Start here to navigate design, diary, tasks, and changelog for this t
 
 ## Overview
 
-This ticket documents how to remove extractor/optimizer plugin contract ownership from `geppetto` and make it a `go-go-gepa` concern, while preserving runtime compatibility and adding a carried `registryIdentifier`.
+This ticket documents the hard-cut removal of `geppetto/plugins` from core geppetto runtime, migration of affected scripts, and follow-up work to carry `registryIdentifier`.
 
 ## Primary Deliverables
 
@@ -41,15 +41,15 @@ This ticket documents how to remove extractor/optimizer plugin contract ownershi
 
 ## Current Status
 
-1. Analysis complete with file-backed architecture mapping.
-2. Phased migration plan defined (ownership, compatibility alias, registry identifier carriage).
-3. Implementation not started in this ticket yet.
+1. Hard-cut removal of `geppetto/plugins` is implemented and committed.
+2. Extractor scripts that depended on `geppetto/plugins` were migrated to plain descriptors.
+3. Remaining work is registry identifier propagation through plugin metadata/reporting.
 
 ## Key Decisions
 
 1. Plugin contract helpers are not core framework APIs and should move out of `geppetto`.
-2. Use `go-go-gepa` as contract owner with canonical module `gepa/plugins`.
-3. Keep temporary `geppetto/plugins` alias during migration.
+2. No compatibility alias (`geppetto/plugins`) is provided; removal is immediate.
+3. Keep local helper `gepa_plugin_contract.js` in `go-go-gepa` for optimizer scripts.
 4. Introduce `registryIdentifier` in plugin metadata and propagate through reports/recorders.
 
 ## Tasks
