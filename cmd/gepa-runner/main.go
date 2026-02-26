@@ -451,6 +451,21 @@ func main() {
 	)
 	cobra.CheckErr(err)
 	rootCmd.AddCommand(command2)
+
+	datasetCmd := &cobra.Command{
+		Use:   "dataset",
+		Short: "Dataset tooling commands",
+	}
+	datasetGenerateCmd, err := NewDatasetGenerateCommand()
+	cobra.CheckErr(err)
+	datasetGenerateCobraCmd, err := cli.BuildCobraCommand(datasetGenerateCmd,
+		cli.WithCobraMiddlewaresFunc(geppettosections.GetCobraCommandGeppettoMiddlewares),
+		cli.WithProfileSettingsSection(),
+	)
+	cobra.CheckErr(err)
+	datasetCmd.AddCommand(datasetGenerateCobraCmd)
+	rootCmd.AddCommand(datasetCmd)
+
 	rootCmd.AddCommand(newEvalReportCommand())
 
 	cobra.CheckErr(rootCmd.Execute())

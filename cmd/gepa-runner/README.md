@@ -3,7 +3,7 @@
 `gepa-runner` runs a GEPA-style reflective optimization loop on top of:
 
 - Geppetto inference/runtime
-- JavaScript optimizer plugins (`require("geppetto")`) with local plugin-contract helper (`./lib/gepa_plugin_contract`)
+- JavaScript plugins loaded via go-go-gepa module helpers (`require("gepa/plugins")`)
 
 Current implementation includes:
 
@@ -56,6 +56,7 @@ Under `cmd/gepa-runner/scripts/`:
 Shared JS utilities are in:
 
 - `cmd/gepa-runner/scripts/lib/gepa_optimizer_common.js`
+- `cmd/gepa-runner/scripts/arithmetic_dataset_generator.js` (dataset-generate example)
 
 ## Optimize flags (important)
 
@@ -135,7 +136,7 @@ If `initialCandidate()` is missing or empty, command fails explicitly.
 Plugin descriptor:
 
 ```js
-const plugins = require("./lib/gepa_plugin_contract");
+const plugins = require("gepa/plugins");
 
 module.exports = plugins.defineOptimizerPlugin({
   apiVersion: plugins.OPTIMIZER_PLUGIN_API_VERSION,
@@ -151,6 +152,22 @@ module.exports = plugins.defineOptimizerPlugin({
   }
 });
 ```
+
+## Dataset generate (building block)
+
+Generate synthetic rows with a dataset-generator script and v2 config:
+
+```bash
+gepa-runner dataset generate \
+  --script ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js \
+  --config ./dataset-generate.yaml \
+  --count 10 \
+  --output-dir ./tmp/generated \
+  --output-db ./tmp/generated/datasets.sqlite
+```
+
+Config YAML (`gepa.dataset-generate/v2`) only defines generation semantics.
+Output routing (`--output-dir`, `--output-db`, etc.) is CLI-only.
 
 ### Required hook
 

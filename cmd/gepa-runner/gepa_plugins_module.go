@@ -9,6 +9,7 @@ import (
 )
 
 const gepaPluginsModuleName = "gepa/plugins"
+const datasetGeneratorPluginAPIVersion = "gepa.dataset-generator/v1"
 
 func registerGepaPluginsModule(reg *require.Registry) {
 	if reg == nil {
@@ -26,6 +27,7 @@ func loadGepaPluginsModule(vm *goja.Runtime, moduleObj *goja.Object) {
 	}
 
 	mustSet("OPTIMIZER_PLUGIN_API_VERSION", optimizerPluginAPIVersion)
+	mustSet("DATASET_GENERATOR_API_VERSION", datasetGeneratorPluginAPIVersion)
 	mustSet("defineOptimizerPlugin", func(call goja.FunctionCall) goja.Value {
 		descriptor := call.Argument(0)
 		if descriptor == nil || goja.IsUndefined(descriptor) || goja.IsNull(descriptor) {
@@ -65,6 +67,56 @@ func loadGepaPluginsModule(vm *goja.Runtime, moduleObj *goja.Object) {
 		createVal := descriptorObj.Get("create")
 		if _, ok := goja.AssertFunction(createVal); !ok {
 			panic(vm.NewTypeError("plugin descriptor create must be a function"))
+		}
+
+		out := vm.NewObject()
+		_ = out.Set("apiVersion", apiVersion)
+		_ = out.Set("kind", kind)
+		_ = out.Set("id", id)
+		_ = out.Set("name", name)
+		_ = out.Set("registryIdentifier", registryIdentifier)
+		_ = out.Set("create", createVal)
+		return freezeJSObject(vm, out)
+	})
+	mustSet("defineDatasetGenerator", func(call goja.FunctionCall) goja.Value {
+		descriptor := call.Argument(0)
+		if descriptor == nil || goja.IsUndefined(descriptor) || goja.IsNull(descriptor) {
+			panic(vm.NewTypeError("dataset generator descriptor must be an object"))
+		}
+		descriptorObj := descriptor.ToObject(vm)
+		if descriptorObj == nil || descriptorObj.ClassName() != "Object" {
+			panic(vm.NewTypeError("dataset generator descriptor must be an object"))
+		}
+
+		apiVersion := readJSStringField(vm, descriptorObj, "apiVersion", false)
+		if apiVersion == "" {
+			apiVersion = datasetGeneratorPluginAPIVersion
+		}
+		if apiVersion != datasetGeneratorPluginAPIVersion {
+			panic(vm.NewTypeError(
+				"unsupported dataset generator apiVersion %q (expected %q)",
+				apiVersion, datasetGeneratorPluginAPIVersion,
+			))
+		}
+
+		kind := readJSStringField(vm, descriptorObj, "kind", false)
+		if kind == "" {
+			kind = "dataset-generator"
+		}
+		if kind != "dataset-generator" {
+			panic(vm.NewTypeError("dataset generator kind must be %q, got %q", "dataset-generator", kind))
+		}
+
+		id := readJSStringField(vm, descriptorObj, "id", true)
+		name := readJSStringField(vm, descriptorObj, "name", true)
+		registryIdentifier := readJSStringField(vm, descriptorObj, "registryIdentifier", false)
+		if registryIdentifier == "" {
+			registryIdentifier = defaultPluginRegistryIdentifier
+		}
+
+		createVal := descriptorObj.Get("create")
+		if _, ok := goja.AssertFunction(createVal); !ok {
+			panic(vm.NewTypeError("dataset generator create must be a function"))
 		}
 
 		out := vm.NewObject()
