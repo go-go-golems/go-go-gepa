@@ -39,6 +39,11 @@ Implemented Promise-aware plugin invocation and event emission infrastructure in
 
 Added Glazed help pages for async contract and streaming examples, wired embedded docs into CLI help, added stream integration tests, and completed GEPA-04 scripts for candidate and dataset flows.
 
+### Related Commits
+
+- `85e8b58` `docs(runner): add glazed async streaming help and CLI tests`
+- `36e98b9` `docs(gepa-04): add detailed diary, tasks, changelog, and scripts`
+
 ### Related Files
 
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/doc/doc.go — Embedded Glazed help loader

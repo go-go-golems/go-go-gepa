@@ -359,3 +359,63 @@ This step also closed out ticket checklist/changelog updates so handoff is strai
   - `gepa-runner-candidate-run-streaming-example`
   - `gepa-runner-dataset-generate-streaming-example`
   - `gepa-runner-async-streaming-troubleshooting`
+
+## Step 6: Ticket Workspace Commit and Milestone Closure
+
+This step committed the GEPA-04 ticket workspace itself so planning, scripts, tasks, changelog, and diary are all versioned and shareable. It closes the bookkeeping gap between implementation commits and ticket artifacts.
+
+It also finalizes M1-M4 task state in the ticket checklist.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 5)
+
+**Assistant interpretation:** Keep the implementation record complete and commit ticket artifacts as work progresses.
+
+**Inferred user intent:** Ensure the ticket is handoff-ready for collaborators with both code and documentation history in git.
+
+**Commit (code):** `36e98b9` — "docs(gepa-04): add detailed diary, tasks, changelog, and scripts"
+
+### What I did
+
+- Added the full GEPA-04 ticket folder to git.
+- Included runnable scripts for candidate and dataset stream flows.
+- Included detailed diary and milestone completion checkboxes.
+
+### Why
+
+- The ticket content is part of deliverable scope and must be reviewable with stable commit history.
+
+### What worked
+
+- Ticket now has complete artifacts needed for intern handoff and reproducible local experiments.
+
+### What didn't work
+
+- N/A.
+
+### What I learned
+
+- Committing ticket artifacts incrementally prevents losing planning context when implementation moves quickly.
+
+### What was tricky to build
+
+- Keeping ticket commits focused while working in a dirty worktree with many unrelated staged files.
+
+### What warrants a second pair of eyes
+
+- Reviewers should confirm no sensitive values exist in example registry/profile YAML files.
+
+### What should be done in the future
+
+- Add output capture files only when explicitly requested to keep ticket scripts folder clean.
+
+### Code review instructions
+
+- Review `tasks.md` for milestone closure consistency against commits.
+- Run scripts manually only when runtime credentials/profile registry are available.
+
+### Technical details
+
+- Ticket commit command used:
+  - `git commit -m "docs(gepa-04): add detailed diary, tasks, changelog, and scripts" -- ttmp/2026/02/26/GEPA-04-ASYNC-PLUGIN-PROMISES--enable-promise-based-js-plugin-execution-and-streaming-events`
