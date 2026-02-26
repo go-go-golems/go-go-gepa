@@ -1,0 +1,40 @@
+2026-02-26T15:32:25.99261433-05:00 INF Loaded candidate-run plugin plugin_id=examples.candidate-run.smoke plugin_name="Candidate Run Smoke Plugin" plugin_registry_identifier=local.examples
+Wrote result to: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-run-result.json
+{
+  "candidate": {
+    "planner_prompt": "First identify the required operation, then compute.\n",
+    "prompt": "Solve the arithmetic problem and return only the final numeric answer.\n"
+  },
+  "candidateId": "cand-exp-10",
+  "input": {
+    "answer": "39",
+    "question": "18 + 21"
+  },
+  "metadata": {
+    "mode": "candidate-run",
+    "plugin": "examples.candidate-run.smoke"
+  },
+  "output": {
+    "composed_instruction": "Solve the arithmetic problem and return only the final numeric answer.\n\n\nFirst identify the required operation, then compute.\n",
+    "expected_answer": "39",
+    "planner_prompt": "First identify the required operation, then compute.\n",
+    "prompt": "Solve the arithmetic problem and return only the final numeric answer.\n",
+    "question": "18 + 21"
+  },
+  "plugin": {
+    "apiVersion": "gepa.optimizer/v1",
+    "id": "examples.candidate-run.smoke",
+    "kind": "optimizer",
+    "name": "Candidate Run Smoke Plugin",
+    "registryIdentifier": "local.examples"
+  },
+  "profile": "gpt-5-nano",
+  "reflectionUsed": "merge-cand-a-b",
+  "runId": "gepa-candidate-run-1772137945991819642",
+  "tags": {
+    "experiment": "exp-10",
+    "suite": "smoke"
+  }
+}
+
+Recorded run in SQLite: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-candidate-runs.sqlite

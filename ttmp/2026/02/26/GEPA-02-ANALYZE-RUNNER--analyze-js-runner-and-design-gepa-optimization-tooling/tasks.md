@@ -15,12 +15,12 @@
 
 ## Pending (Implementation Work)
 
-- [ ] Add `candidate` command group and `candidate run` subcommand.
-- [ ] Add plugin loader support for `run()` in candidate-run mode.
-- [ ] Implement `gepa.candidate-run/v2` config loading with strict schema (no script/output/input keys).
-- [ ] Require `--input-file` as separate file from candidate config.
-- [ ] Require external `--script` for candidate-run.
-- [ ] Add `gepa_candidate_runs` sqlite table and insert path.
+- [x] Add `candidate` command group and `candidate run` subcommand.
+- [x] Add plugin loader support for `run()` in candidate-run mode.
+- [x] Implement `gepa.candidate-run/v2` config loading with strict schema (no script/output/input keys).
+- [x] Require `--input-file` as separate file from candidate config.
+- [x] Require external `--script` for candidate-run.
+- [x] Add `gepa_candidate_runs` sqlite table and insert path.
 - [x] Add `dataset` command group and `dataset generate` subcommand.
 - [x] Add dataset-generator plugin contract loader (`gepa.dataset-generator/v1`).
 - [x] Implement `gepa.dataset-generate/v2` config loading with strict schema (no script/output keys).

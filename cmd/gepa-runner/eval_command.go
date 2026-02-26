@@ -95,9 +95,6 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve pinocchio profile")
 	}
-	if err := applyProfileEnvironment(profile, parsedValues); err != nil {
-		return errors.Wrap(err, "failed to apply profile environment")
-	}
 	engineOptions, err := resolveEngineOptions(parsedValues)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve engine options from parsed settings")
@@ -125,6 +122,9 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 	plugin, meta, err := loadOptimizerPlugin(jsrt, absScript, hostContext)
 	if err != nil {
 		return err
+	}
+	if !plugin.HasEvaluate() {
+		return fmt.Errorf("plugin evaluate() is required for eval mode")
 	}
 	log.Info().
 		Str("plugin_id", meta.ID).

@@ -222,3 +222,39 @@ Extracted dataset-generation internals from `cmd/gepa-runner` into reusable libr
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/run.go
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/dataset_generate_command.go
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/gepa_plugins_module.go
+
+## 2026-02-26
+
+Implemented the GEPA-02 `candidate run` building block with strict split config/input files and sqlite recording.
+
+### What changed
+
+- Added new command surface:
+  - `candidate` group,
+  - `candidate run` subcommand (Glazed wiring).
+- Added candidate-run config + input parsing:
+  - `gepa.candidate-run/v2` loader with strict top-level key validation,
+  - separate input file loader for JSON/YAML object payloads.
+- Extended optimizer plugin loader for candidate-run mode:
+  - supports `run()` callable,
+  - added `HasRun()`/`HasEvaluate()` checks,
+  - optimize/eval now explicitly require `evaluate()`.
+- Added candidate-run sqlite table + insert path:
+  - `gepa_candidate_runs`.
+- Added tests and runtime experiment artifacts (`exp-10-*`) in ticket scripts folder.
+
+### Validation
+
+- `go test ./cmd/gepa-runner -count=1` passed.
+- `go test ./pkg/dataset/generator -count=1` passed.
+- `exp-10` candidate-run script succeeded with `--profile gpt-5-nano` and persisted one completed sqlite row.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/candidate_run_command.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/candidate_run_config.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/candidate_run_store.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/plugin_loader.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-run.txt
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-sql-summary.txt

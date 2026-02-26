@@ -37,6 +37,7 @@ type optimizerPlugin struct {
 	instance *goja.Object
 
 	evaluateFn          goja.Callable
+	runFn               goja.Callable
 	datasetFn           goja.Callable
 	mergeFn             goja.Callable
 	initialCandidateFn  goja.Callable
@@ -106,9 +107,10 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must return an object instance")
 	}
 
-	evaluateFn, ok := goja.AssertFunction(instanceObj.Get("evaluate"))
-	if !ok {
-		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+	evaluateFn := findOptionalCallable(instanceObj, "evaluate")
+	runFn := findOptionalCallable(instanceObj, "run", "runCandidate")
+	if evaluateFn == nil && runFn == nil {
+		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance must expose evaluate() and/or run()")
 	}
 
 	mergeFn := findOptionalCallable(instanceObj, "merge", "mergeCandidate", "mergePrompt")
@@ -122,6 +124,7 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
 		meta:                meta,
 		instance:            instanceObj,
 		evaluateFn:          evaluateFn,
+		runFn:               runFn,
 		datasetFn:           datasetFn,
 		mergeFn:             mergeFn,
 		initialCandidateFn:  initialCandidateFn,
@@ -228,8 +231,11 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 }
 
 func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int, example any, opts pluginEvaluateOptions) (gepaopt.EvalResult, error) {
-	if p == nil || p.rt == nil || p.instance == nil || p.evaluateFn == nil {
+	if p == nil || p.rt == nil || p.instance == nil {
 		return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
+	}
+	if p.evaluateFn == nil {
+		return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: evaluate() not available")
 	}
 
 	input := map[string]any{
@@ -259,6 +265,40 @@ func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int
 	}
 	er.Raw = decoded
 	return er, nil
+}
+
+func (p *optimizerPlugin) HasEvaluate() bool {
+	return p != nil && p.evaluateFn != nil
+}
+
+func (p *optimizerPlugin) HasRun() bool {
+	return p != nil && p.runFn != nil
+}
+
+func (p *optimizerPlugin) Run(input map[string]any, candidate gepaopt.Candidate, opts pluginEvaluateOptions) (any, error) {
+	if p == nil || p.rt == nil || p.instance == nil {
+		return nil, fmt.Errorf("plugin run: plugin not initialized")
+	}
+	if p.runFn == nil {
+		return nil, fmt.Errorf("plugin run: run() not available")
+	}
+
+	options := map[string]any{
+		"candidate":     candidate,
+		"profile":       strings.TrimSpace(opts.Profile),
+		"engineOptions": opts.EngineOptions,
+		"tags":          opts.Tags,
+	}
+	ret, err := p.runFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin run: call failed")
+	}
+
+	decoded, err := decodeJSReturnValue(ret)
+	if err != nil {
+		return nil, errors.Wrap(err, "plugin run: invalid return value")
+	}
+	return decoded, nil
 }
 
 func (p *optimizerPlugin) HasMerge() bool {

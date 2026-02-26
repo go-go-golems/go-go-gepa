@@ -904,3 +904,65 @@ Run succeeded and wrote JSONL + metadata + sqlite rows.
 ### What this unlocks
 
 `dataset generate` behavior is now reusable from non-CLI call sites (future tools/commands/services) via a stable `pkg/dataset/generator` API instead of being bound to `cmd/gepa-runner` internals.
+
+## Phase 15: Implement `candidate run` Building Block (2026-02-26)
+
+Implemented the pending GEPA-02 `candidate run` command with strict split inputs (`--config` + `--input-file`), external `--script`, and dedicated sqlite recording.
+
+### What I changed
+
+1. Added command wiring:
+   - new `candidate` command group,
+   - new `candidate run` subcommand with Glazed flags.
+2. Added strict candidate-run config and input parsing:
+   - `gepa.candidate-run/v2` loader,
+   - forbidden top-level keys enforced (`script`/`input`/output/storage routing fields),
+   - separate `--input-file` object parser (JSON/YAML).
+3. Extended plugin loader for candidate-run execution path:
+   - supports optional `run()` callable on optimizer plugins,
+   - added mode guards (`HasEvaluate`, `HasRun`),
+   - optimize/eval now fail early if `evaluate()` is missing.
+4. Added dedicated sqlite persistence for candidate-run rows:
+   - `gepa_candidate_runs` table,
+   - stores candidate metadata (`candidate_id`, `reflection_used`, tags), input, output, config snapshot, status/error.
+5. Added tests:
+   - candidate-run config parser tests,
+   - candidate-run sqlite write test,
+   - plugin loader run-only plugin test.
+
+### Runtime experiment artifacts (ticket-local)
+
+1. `scripts/exp-10-candidate-run-plugin.js`
+2. `scripts/exp-10-candidate-run-config.yaml`
+3. `scripts/exp-10-candidate-run-input.json`
+4. `scripts/exp-10-run-candidate-run.sh`
+5. `scripts/exp-10-run.txt`
+6. `scripts/exp-10-run-result.json`
+7. `scripts/exp-10-candidate-runs.sqlite`
+8. `scripts/exp-10-sql-summary.txt`
+
+### Validation
+
+1. Tests:
+
+```bash
+go test ./cmd/gepa-runner -count=1
+go test ./pkg/dataset/generator -count=1
+```
+
+2. Candidate-run smoke command:
+
+```bash
+go run ./cmd/gepa-runner candidate run \
+  --profile gpt-5-nano \
+  --profile-registries ./ttmp/.../scripts/exp-07-profile-registry-gpt5nano.yaml \
+  --script ./ttmp/.../scripts/exp-10-candidate-run-plugin.js \
+  --config ./ttmp/.../scripts/exp-10-candidate-run-config.yaml \
+  --input-file ./ttmp/.../scripts/exp-10-candidate-run-input.json \
+  --output-format json \
+  --record \
+  --record-db ./ttmp/.../scripts/exp-10-candidate-runs.sqlite \
+  --out-result ./ttmp/.../scripts/exp-10-run-result.json
+```
+
+Run succeeded, emitted JSON result, and inserted one `completed` row into `gepa_candidate_runs`.

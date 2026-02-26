@@ -257,3 +257,77 @@ func TestSelectComponentsMethodFailsWithoutRuntime(t *testing.T) {
 		t.Fatalf("expected error for uninitialized runtime")
 	}
 }
+
+func TestLoadOptimizerPluginRunOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "plugin-run-only.js")
+	script := `
+const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineOptimizerPlugin({
+  apiVersion: OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "example.run-only",
+  name: "Example Run Only",
+  create() {
+    return {
+      run(input, options) {
+        return {
+          output: {
+            prompt: String((options && options.candidate && options.candidate.prompt) || ""),
+            question: String((input && input.question) || "")
+          },
+          metadata: {
+            mode: "run"
+          }
+        };
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := loadOptimizerPlugin(rt, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("loadOptimizerPlugin failed: %v", err)
+	}
+	if plugin.HasEvaluate() {
+		t.Fatalf("expected HasEvaluate false for run-only plugin")
+	}
+	if !plugin.HasRun() {
+		t.Fatalf("expected HasRun true for run-only plugin")
+	}
+
+	got, err := plugin.Run(
+		map[string]any{"question": "2+2"},
+		gepaopt.Candidate{"prompt": "Solve carefully"},
+		pluginEvaluateOptions{},
+	)
+	if err != nil {
+		t.Fatalf("plugin Run failed: %v", err)
+	}
+
+	out, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map output, got %T", got)
+	}
+	output, ok := out["output"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected output object, got %T", out["output"])
+	}
+	if output["prompt"] != "Solve carefully" {
+		t.Fatalf("unexpected prompt: %#v", output["prompt"])
+	}
+	if output["question"] != "2+2" {
+		t.Fatalf("unexpected question: %#v", output["question"])
+	}
+}

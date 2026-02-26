@@ -128,9 +128,6 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve pinocchio profile")
 	}
-	if err := applyProfileEnvironment(profile, parsedValues); err != nil {
-		return errors.Wrap(err, "failed to apply profile environment")
-	}
 
 	engineOptions, err := resolveEngineOptions(parsedValues)
 	if err != nil {
@@ -166,6 +163,9 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	plugin, meta, err := loadOptimizerPlugin(jsrt, absScript, hostContext)
 	if err != nil {
 		return err
+	}
+	if !plugin.HasEvaluate() {
+		return fmt.Errorf("plugin evaluate() is required for optimize mode")
 	}
 	log.Info().
 		Str("plugin_id", meta.ID).
@@ -438,7 +438,6 @@ func main() {
 
 	command, err := cli.BuildCobraCommand(optCmd,
 		cli.WithCobraMiddlewaresFunc(geppettosections.GetCobraCommandGeppettoMiddlewares),
-		cli.WithProfileSettingsSection(),
 	)
 	cobra.CheckErr(err)
 	rootCmd.AddCommand(command)
@@ -447,7 +446,6 @@ func main() {
 	cobra.CheckErr(err)
 	command2, err := cli.BuildCobraCommand(evalCmd,
 		cli.WithCobraMiddlewaresFunc(geppettosections.GetCobraCommandGeppettoMiddlewares),
-		cli.WithProfileSettingsSection(),
 	)
 	cobra.CheckErr(err)
 	rootCmd.AddCommand(command2)
@@ -460,11 +458,23 @@ func main() {
 	cobra.CheckErr(err)
 	datasetGenerateCobraCmd, err := cli.BuildCobraCommand(datasetGenerateCmd,
 		cli.WithCobraMiddlewaresFunc(geppettosections.GetCobraCommandGeppettoMiddlewares),
-		cli.WithProfileSettingsSection(),
 	)
 	cobra.CheckErr(err)
 	datasetCmd.AddCommand(datasetGenerateCobraCmd)
 	rootCmd.AddCommand(datasetCmd)
+
+	candidateCmd := &cobra.Command{
+		Use:   "candidate",
+		Short: "Candidate tooling commands",
+	}
+	candidateRunCmd, err := NewCandidateRunCommand()
+	cobra.CheckErr(err)
+	candidateRunCobraCmd, err := cli.BuildCobraCommand(candidateRunCmd,
+		cli.WithCobraMiddlewaresFunc(geppettosections.GetCobraCommandGeppettoMiddlewares),
+	)
+	cobra.CheckErr(err)
+	candidateCmd.AddCommand(candidateRunCobraCmd)
+	rootCmd.AddCommand(candidateCmd)
 
 	rootCmd.AddCommand(newEvalReportCommand())
 
