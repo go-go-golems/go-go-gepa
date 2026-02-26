@@ -27,5 +27,6 @@
 - [x] Require external `--script` for dataset-generate.
 - [x] Route output/storage only via CLI flags (`--output-dir`, `--output-db`, etc.).
 - [x] Add generated dataset sqlite tables and JSONL output pipeline.
+- [x] Handle dataset-generator token-limit truncation via stop-reason continuation logic in ticket-local `exp-11` script.
 - [ ] Add integration tests for candidate run and dataset generate.
 - [ ] Add CLI help/examples for both commands using Glazed conventions.

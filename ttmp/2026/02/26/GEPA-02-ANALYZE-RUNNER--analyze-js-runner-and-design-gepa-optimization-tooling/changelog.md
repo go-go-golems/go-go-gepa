@@ -258,3 +258,30 @@ Implemented the GEPA-02 `candidate run` building block with strict split config/
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-run.txt
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-10-sql-summary.txt
+
+## 2026-02-26
+
+Added token-limit stop-reason continuation handling for the coaching dataset generator experiment (`exp-11`), without executing runs.
+
+### What changed
+
+- Updated `exp-11-coaching-dataset-generator.js` to:
+  - detect `metadata.stop_reason`,
+  - classify token-limit truncation stop reasons,
+  - continue generation in-session with explicit JSON continuation prompts,
+  - merge repeated overlap across continuation chunks,
+  - emit richer row metadata (`llm_attempts`, `llm_stop_reason`, `llm_used_continuation`),
+  - preserve run tags on each `session.run` call.
+- Updated `exp-11-coaching-dataset-config.yaml` variables:
+  - `max_continuation_attempts`,
+  - `stream_responses`.
+
+### Validation
+
+- No runtime execution performed in this change set (explicit user instruction to not run until asked).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-11-coaching-dataset-generator.js
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-11-coaching-dataset-config.yaml
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/reference/01-investigation-diary.md

@@ -966,3 +966,51 @@ go run ./cmd/gepa-runner candidate run \
 ```
 
 Run succeeded, emitted JSON result, and inserted one `completed` row into `gepa_candidate_runs`.
+
+## Phase 16: Handle LLM Output Token Truncation in Dataset Generation Script (2026-02-26)
+
+Implemented continuation-aware JSON assembly for the `exp-11` coaching dataset generator so token-limit stop reasons no longer hard-fail single-pass parsing.
+
+### Why this phase
+
+User asked what happens when model output is cut due to token limits and requested explicit handling.
+
+### What I changed
+
+1. Updated ticket-local script:
+   - `scripts/exp-11-coaching-dataset-generator.js`
+2. Added stop-reason detection from turn metadata:
+   - reads `metadata.stop_reason` (canonical key via `gp.consts.TurnMetadataKeys.STOP_REASON` fallback).
+3. Added token-limit stop-reason classification:
+   - handles common variants (`max_tokens`, `max_output_tokens`, `token_limit`, `length`, truncation hints).
+4. Added continuation loop around prompt execution:
+   - keeps one session,
+   - appends additional assistant chunks using overlap-aware merge,
+   - sends explicit "continue JSON only" follow-up prompt when truncation is detected,
+   - retries up to configurable `maxContinuationAttempts`.
+5. Added metadata reporting for analysis:
+   - `llm_attempts`,
+   - `llm_stop_reason`,
+   - `llm_used_continuation`.
+6. Added config knobs in:
+   - `scripts/exp-11-coaching-dataset-config.yaml`
+   - new vars:
+     - `max_continuation_attempts`
+     - `stream_responses`
+7. Preserved run tagging by passing `options.tags` into each `session.run(...)`.
+
+### Streaming note
+
+Current dataset-generator plugin execution is synchronous (`generateOne` returns concrete row data), so this phase added chunk/attempt diagnostics (`stream_responses`) and continuation retries, but not true token-by-token streaming to CLI from `RunHandle.on(...)`.
+
+### Commands used in this phase (no model run)
+
+```bash
+rg --files pkg cmd | rg 'dataset|generator|plugin|candidate|runner|profile|gepetto|script'
+sed -n '1,260p' .../scripts/exp-11-coaching-dataset-generator.js
+sed -n '1,260p' .../scripts/exp-11-coaching-dataset-config.yaml
+```
+
+### Validation status
+
+No generation/test commands were run in this phase per explicit user instruction: "don't run it until i tell you."
