@@ -27,6 +27,7 @@ var _ cmds.WriterCommand = (*DatasetGenerateCommand)(nil)
 type DatasetGenerateSettings struct {
 	ScriptPath     string `glazed:"script"`
 	ConfigPath     string `glazed:"config"`
+	Stream         bool   `glazed:"stream"`
 	Count          int    `glazed:"count"`
 	Seed           int64  `glazed:"seed"`
 	OutputDir      string `glazed:"output-dir"`
@@ -58,6 +59,7 @@ YAML config must not include script/output routing. Use CLI flags for outputs:
 		cmds.WithFlags(
 			fields.New("script", fields.TypeString, fields.WithHelp("Path to JS dataset generator plugin"), fields.WithRequired(true)),
 			fields.New("config", fields.TypeString, fields.WithHelp("Path to dataset generation YAML config"), fields.WithRequired(true)),
+			fields.New("stream", fields.TypeBool, fields.WithHelp("Stream plugin-emitted events as they arrive"), fields.WithDefault(false)),
 			fields.New("count", fields.TypeInteger, fields.WithHelp("Override config count (>0)."), fields.WithDefault(0)),
 			fields.New("seed", fields.TypeInteger, fields.WithHelp("Override config seed (>=0). Use -1 to keep config/default seed."), fields.WithDefault(-1)),
 			fields.New("output-dir", fields.TypeString, fields.WithHelp("Directory to write JSONL dataset + metadata files")),
@@ -108,11 +110,12 @@ func (c *DatasetGenerateCommand) RunIntoWriter(ctx context.Context, parsedValues
 	}
 	defer jsrt.Close()
 
-	result, err := datasetgen.RunWithRuntime(jsrt.vm, jsrt.reqMod, datasetgen.RunInput{
+	result, err := datasetgen.RunWithRuntime(jsrt.vm, jsrt.runner, jsrt.reqMod, datasetgen.RunInput{
 		ScriptPath:    s.ScriptPath,
 		ConfigPath:    s.ConfigPath,
 		Profile:       profile,
 		EngineOptions: engineOptions,
+		EventSink:     newCommandEventSink(w, s.Stream, "dataset_generate"),
 		ResolveOptions: datasetgen.ResolveOptions{
 			ConfigPath:     s.ConfigPath,
 			Count:          s.Count,

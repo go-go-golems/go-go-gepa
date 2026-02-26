@@ -29,6 +29,7 @@ type CandidateRunSettings struct {
 	ScriptPath     string `glazed:"script"`
 	ConfigPath     string `glazed:"config"`
 	InputFile      string `glazed:"input-file"`
+	Stream         bool   `glazed:"stream"`
 	Record         bool   `glazed:"record"`
 	RecordDB       string `glazed:"record-db"`
 	CandidateID    string `glazed:"candidate-id"`
@@ -61,6 +62,7 @@ Config YAML must not include script/input/output routing.
 			fields.New("script", fields.TypeString, fields.WithHelp("Path to JS optimizer plugin (descriptor)"), fields.WithRequired(true)),
 			fields.New("config", fields.TypeString, fields.WithHelp("Path to candidate-run YAML config"), fields.WithRequired(true)),
 			fields.New("input-file", fields.TypeString, fields.WithHelp("Path to run input file (JSON or YAML object)"), fields.WithRequired(true)),
+			fields.New("stream", fields.TypeBool, fields.WithHelp("Stream plugin-emitted events as they arrive"), fields.WithDefault(false)),
 			fields.New("record", fields.TypeBool, fields.WithHelp("Persist candidate run row to SQLite"), fields.WithDefault(false)),
 			fields.New("record-db", fields.TypeString, fields.WithHelp("SQLite file path for candidate run records"), fields.WithDefault(".gepa-runner/runs.sqlite")),
 			fields.New("candidate-id", fields.TypeString, fields.WithHelp("Override candidate_id from config metadata")),
@@ -259,6 +261,7 @@ func (c *CandidateRunCommand) RunIntoWriter(ctx context.Context, parsedValues *v
 		Profile:       effectiveProfile,
 		EngineOptions: effectiveEngineOptions,
 		Tags:          pluginTags,
+		EventSink:     newCommandEventSink(w, s.Stream, "candidate_run"),
 	})
 	if err != nil {
 		return finalize(err)
