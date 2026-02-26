@@ -11,6 +11,7 @@ type GenerateRowsOptions struct {
 	Profile       string
 	EngineOptions map[string]any
 	Tags          map[string]any
+	EventSink     EventSink
 }
 
 func GenerateRows(plugin *Plugin, cfg ResolvedConfig, options GenerateRowsOptions) ([]Row, int, error) {
@@ -51,6 +52,7 @@ func GenerateRows(plugin *Plugin, cfg ResolvedConfig, options GenerateRowsOption
 				Seed:          cfg.Seed,
 				RNG:           rng,
 				Config:        cfg.Config,
+				EventSink:     options.EventSink,
 			})
 			if err != nil {
 				lastErr = err

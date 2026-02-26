@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	datasetgen "github.com/go-go-golems/go-go-gepa/pkg/dataset/generator"
+	"github.com/go-go-golems/go-go-gepa/pkg/jsbridge"
 )
 
 type loaderTestRNG struct {
@@ -86,7 +88,7 @@ module.exports = defineDatasetGenerator({
 	hostContext := map[string]any{
 		"app": "test",
 	}
-	plugin, meta, err := datasetgen.LoadPlugin(rt.vm, rt.reqMod, scriptPath, hostContext)
+	plugin, meta, err := datasetgen.LoadPlugin(rt.vm, rt.runner, rt.reqMod, scriptPath, hostContext)
 	if err != nil {
 		t.Fatalf("LoadPlugin failed: %v", err)
 	}
@@ -113,5 +115,90 @@ module.exports = defineDatasetGenerator({
 	}
 	if metadata["seed"] != int64(42) && metadata["seed"] != float64(42) {
 		t.Fatalf("unexpected metadata seed: %#v", metadata["seed"])
+	}
+}
+
+func TestLoadDatasetGeneratorPluginSupportsPromiseGenerateAndStreaming(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "generator-promise.js")
+	script := `
+const { defineDatasetGenerator, DATASET_GENERATOR_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineDatasetGenerator({
+  apiVersion: DATASET_GENERATOR_API_VERSION,
+  kind: "dataset-generator",
+  id: "example.generator.promise",
+  name: "Example Generator Promise",
+  create() {
+    return {
+      generateOne(input, options) {
+        return Promise.resolve().then(() => {
+          if (options && typeof options.emitEvent === "function") {
+            options.emitEvent({ type: "row-start", data: { index: input.index } });
+          }
+          if (options && options.events && typeof options.events.emit === "function") {
+            options.events.emit({ type: "row-progress", message: "building row" });
+          }
+          return {
+            row: {
+              index: input.index,
+              value: "ok"
+            },
+            metadata: {
+              mode: "async"
+            }
+          };
+        });
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := datasetgen.LoadPlugin(rt.vm, rt.runner, rt.reqMod, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("LoadPlugin failed: %v", err)
+	}
+
+	eventCh := make(chan jsbridge.Event, 8)
+	row, metadata, err := plugin.GenerateOne(map[string]any{"index": 1}, datasetgen.PluginGenerateOptions{
+		EventSink: func(event jsbridge.Event) {
+			eventCh <- event
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateOne failed: %v", err)
+	}
+	if row["value"] != "ok" {
+		t.Fatalf("unexpected row value: %#v", row["value"])
+	}
+	if metadata["mode"] != "async" {
+		t.Fatalf("unexpected metadata mode: %#v", metadata["mode"])
+	}
+
+	events := make([]jsbridge.Event, 0, 2)
+	deadline := time.After(1 * time.Second)
+	for len(events) < 2 {
+		select {
+		case event := <-eventCh:
+			events = append(events, event)
+		case <-deadline:
+			t.Fatalf("timed out waiting for streamed events, got=%d", len(events))
+		}
+	}
+	if events[0].PluginMethod != "generateOne" || events[1].PluginMethod != "generateOne" {
+		t.Fatalf("expected plugin method generateOne in streamed events")
+	}
+	if events[0].Sequence != 1 || events[1].Sequence != 2 {
+		t.Fatalf("expected event sequences 1,2 got %d,%d", events[0].Sequence, events[1].Sequence)
 	}
 }

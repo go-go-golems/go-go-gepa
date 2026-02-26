@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -8,11 +9,15 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/require"
+	"github.com/go-go-golems/go-go-gepa/pkg/jsbridge"
+	"github.com/go-go-golems/go-go-goja/pkg/runtimeowner"
 	"github.com/pkg/errors"
 )
 
 const PluginAPIVersion = "gepa.dataset-generator/v1"
 const DefaultRegistryIdentifier = "local"
+
+type EventSink = jsbridge.EventSink
 
 type PluginMeta struct {
 	APIVersion         string
@@ -29,6 +34,7 @@ type PluginGenerateOptions struct {
 	Seed          int64
 	RNG           any
 	Config        any
+	EventSink     jsbridge.EventSink
 }
 
 type RNG interface {
@@ -40,12 +46,13 @@ type RNG interface {
 
 type Plugin struct {
 	vm         *goja.Runtime
+	runner     runtimeowner.Runner
 	meta       PluginMeta
 	instance   *goja.Object
 	generateFn goja.Callable
 }
 
-func LoadPlugin(vm *goja.Runtime, req *require.RequireModule, absScriptPath string, hostContext map[string]any) (*Plugin, PluginMeta, error) {
+func LoadPlugin(vm *goja.Runtime, runner runtimeowner.Runner, req *require.RequireModule, absScriptPath string, hostContext map[string]any) (*Plugin, PluginMeta, error) {
 	if vm == nil || req == nil {
 		return nil, PluginMeta{}, errors.New("dataset generator loader: runtime is nil")
 	}
@@ -109,6 +116,7 @@ func LoadPlugin(vm *goja.Runtime, req *require.RequireModule, absScriptPath stri
 
 	p := &Plugin{
 		vm:         vm,
+		runner:     runner,
 		meta:       meta,
 		instance:   instanceObj,
 		generateFn: generateFn,
@@ -136,12 +144,33 @@ func (p *Plugin) GenerateOne(input map[string]any, opts PluginGenerateOptions) (
 		"rng":           buildRNGBridge(p.vm, opts.RNG),
 		"config":        opts.Config,
 	}
+	if opts.EventSink != nil {
+		emitter := jsbridge.NewEmitter(jsbridge.EmitterOptions{
+			PluginMethod:             "generateOne",
+			PluginID:                 p.meta.ID,
+			PluginName:               p.meta.Name,
+			PluginRegistryIdentifier: p.meta.RegistryIdentifier,
+			Sink:                     opts.EventSink,
+		})
+		emit := func(payload any) {
+			emitter.Emit(payload)
+		}
+		options["emitEvent"] = emit
+		options["events"] = map[string]any{"emit": emit}
+	}
 
-	ret, err := p.generateFn(p.instance, p.vm.ToValue(input), p.vm.ToValue(options))
+	decodedRaw, err := jsbridge.CallAndResolve(context.Background(), jsbridge.CallAndResolveOptions{
+		Op:             fmt.Sprintf("dataset.%s.generateOne", strings.TrimSpace(p.meta.ID)),
+		VM:             p.vm,
+		Runner:         p.runner,
+		DefaultTimeout: jsbridge.DefaultPromiseTimeout,
+	}, func(vm *goja.Runtime) (goja.Value, error) {
+		return p.generateFn(p.instance, vm.ToValue(input), vm.ToValue(options))
+	})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "dataset generator: call failed")
 	}
-	decoded, err := decodeJSReturnValue(ret)
+	decoded, err := decodeJSReturnValue(decodedRaw)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "dataset generator: invalid return value")
 	}
@@ -257,11 +286,11 @@ func normalizeStringAnyMap(v any) (map[string]any, bool) {
 	}
 }
 
-func decodeJSReturnValue(ret goja.Value) (any, error) {
-	if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+func decodeJSReturnValue(ret any) (any, error) {
+	if ret == nil {
 		return nil, fmt.Errorf("returned null/undefined")
 	}
-	if raw, ok := ret.Export().(string); ok {
+	if raw, ok := ret.(string); ok {
 		if strings.TrimSpace(raw) == "" {
 			return nil, fmt.Errorf("returned empty string")
 		}
@@ -271,14 +300,14 @@ func decodeJSReturnValue(ret goja.Value) (any, error) {
 		}
 		return raw, nil
 	}
-	if bytes, ok := ret.Export().([]uint8); ok {
+	if bytes, ok := ret.([]uint8); ok {
 		var jsonValue any
 		if err := json.Unmarshal(bytes, &jsonValue); err == nil {
 			return jsonValue, nil
 		}
 		return bytes, nil
 	}
-	return ret.Export(), nil
+	return ret, nil
 }
 
 func decodeOptionalJSString(v goja.Value) string {

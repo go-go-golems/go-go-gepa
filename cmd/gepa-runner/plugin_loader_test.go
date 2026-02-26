@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dop251/goja"
+	"github.com/go-go-golems/go-go-gepa/pkg/jsbridge"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 )
 
@@ -329,5 +331,149 @@ module.exports = defineOptimizerPlugin({
 	}
 	if output["question"] != "2+2" {
 		t.Fatalf("unexpected question: %#v", output["question"])
+	}
+}
+
+func TestLoadOptimizerPluginSupportsPromiseRunAndEventStreaming(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "plugin-run-promise.js")
+	script := `
+const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineOptimizerPlugin({
+  apiVersion: OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "example.run-promise",
+  name: "Example Run Promise",
+  create() {
+    return {
+      run(input, options) {
+        return Promise.resolve().then(() => {
+          if (options && typeof options.emitEvent === "function") {
+            options.emitEvent({ type: "run-start", data: { question: String((input && input.question) || "") } });
+          }
+          if (options && options.events && typeof options.events.emit === "function") {
+            options.events.emit({ type: "run-progress", message: "halfway" });
+          }
+          return {
+            output: {
+              prompt: String((options && options.candidate && options.candidate.prompt) || ""),
+              question: String((input && input.question) || "")
+            },
+            metadata: {
+              mode: "async"
+            }
+          };
+        });
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := loadOptimizerPlugin(rt, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("loadOptimizerPlugin failed: %v", err)
+	}
+
+	eventCh := make(chan jsbridge.Event, 8)
+	got, err := plugin.Run(
+		map[string]any{"question": "How are you?"},
+		gepaopt.Candidate{"prompt": "Respond politely"},
+		pluginEvaluateOptions{
+			EventSink: func(event jsbridge.Event) {
+				eventCh <- event
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("plugin Run failed: %v", err)
+	}
+
+	out, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map output, got %T", got)
+	}
+	output, ok := out["output"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected output object, got %T", out["output"])
+	}
+	if output["prompt"] != "Respond politely" {
+		t.Fatalf("unexpected prompt: %#v", output["prompt"])
+	}
+
+	events := make([]jsbridge.Event, 0, 2)
+	deadline := time.After(1 * time.Second)
+	for len(events) < 2 {
+		select {
+		case event := <-eventCh:
+			events = append(events, event)
+		case <-deadline:
+			t.Fatalf("timed out waiting for streamed events, got=%d", len(events))
+		}
+	}
+
+	if events[0].PluginMethod != "run" || events[1].PluginMethod != "run" {
+		t.Fatalf("expected plugin method run in streamed events, got %#v and %#v", events[0].PluginMethod, events[1].PluginMethod)
+	}
+	if events[0].Sequence != 1 || events[1].Sequence != 2 {
+		t.Fatalf("expected event sequences 1,2 got %d,%d", events[0].Sequence, events[1].Sequence)
+	}
+}
+
+func TestLoadOptimizerPluginSupportsPromiseEvaluate(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "plugin-eval-promise.js")
+	script := `
+const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineOptimizerPlugin({
+  apiVersion: OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "example.eval-promise",
+  name: "Example Eval Promise",
+  create() {
+    return {
+      evaluate(input) {
+        return Promise.resolve({
+          score: 0.9,
+          objectives: { score: 0.9 },
+          output: { seenCandidate: !!(input && input.candidate) }
+        });
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := loadOptimizerPlugin(rt, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("loadOptimizerPlugin failed: %v", err)
+	}
+
+	res, err := plugin.Evaluate(gepaopt.Candidate{"prompt": "x"}, 0, map[string]any{"prompt": "y"}, pluginEvaluateOptions{})
+	if err != nil {
+		t.Fatalf("plugin Evaluate failed: %v", err)
+	}
+	if res.Score != 0.9 {
+		t.Fatalf("unexpected score: %v", res.Score)
 	}
 }

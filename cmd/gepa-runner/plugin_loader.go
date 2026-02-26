@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -9,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/dop251/goja"
-	"github.com/dop251/goja_nodejs/require"
+	"github.com/go-go-golems/go-go-gepa/pkg/jsbridge"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 	"github.com/pkg/errors"
 )
@@ -29,6 +30,7 @@ type pluginEvaluateOptions struct {
 	Profile       string
 	EngineOptions map[string]any
 	Tags          map[string]any
+	EventSink     jsbridge.EventSink
 }
 
 type optimizerPlugin struct {
@@ -206,6 +208,55 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func (p *optimizerPlugin) callPluginFunction(method string, fn goja.Callable, args ...any) (any, error) {
+	if p == nil || p.rt == nil || p.rt.vm == nil || p.instance == nil {
+		return nil, fmt.Errorf("plugin %s: plugin not initialized", method)
+	}
+	if fn == nil {
+		return nil, fmt.Errorf("plugin %s: method is not available", method)
+	}
+
+	op := fmt.Sprintf("optimizer.%s.%s", strings.TrimSpace(p.meta.ID), strings.TrimSpace(method))
+	resolved, err := jsbridge.CallAndResolve(context.Background(), jsbridge.CallAndResolveOptions{
+		Op:             op,
+		VM:             p.rt.vm,
+		Runner:         p.rt.runner,
+		DefaultTimeout: jsbridge.DefaultPromiseTimeout,
+	}, func(vm *goja.Runtime) (goja.Value, error) {
+		jsArgs := make([]goja.Value, 0, len(args))
+		for _, arg := range args {
+			jsArgs = append(jsArgs, vm.ToValue(arg))
+		}
+		return fn(p.instance, jsArgs...)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	decoded, err := decodeJSReturnValue(resolved)
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func (p *optimizerPlugin) makeEventHooks(method string, sink jsbridge.EventSink) (any, map[string]any) {
+	if sink == nil {
+		return nil, nil
+	}
+	emitter := jsbridge.NewEmitter(jsbridge.EmitterOptions{
+		PluginMethod:             method,
+		PluginID:                 p.meta.ID,
+		PluginName:               p.meta.Name,
+		PluginRegistryIdentifier: p.meta.RegistryIdentifier,
+		Sink:                     sink,
+	})
+	emit := func(payload any) {
+		emitter.Emit(payload)
+	}
+	return emit, map[string]any{"emit": emit}
+}
+
 func (p *optimizerPlugin) Dataset() ([]any, error) {
 	if p == nil || p.rt == nil || p.instance == nil {
 		return nil, fmt.Errorf("plugin dataset: plugin not initialized")
@@ -214,14 +265,9 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 		return nil, fmt.Errorf("plugin dataset: instance.dataset() not found (provide --dataset)")
 	}
 
-	ret, err := p.datasetFn(p.instance, goja.Undefined())
+	decoded, err := p.callPluginFunction("dataset", p.datasetFn, goja.Undefined())
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin dataset: call failed")
-	}
-
-	decoded, err := decodeJSReturnValue(ret)
-	if err != nil {
-		return nil, errors.Wrap(err, "plugin dataset: invalid return value")
 	}
 	arr, ok := decoded.([]any)
 	if ok {
@@ -248,15 +294,14 @@ func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-
-	ret, err := p.evaluateFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
-	if err != nil {
-		return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
+	if emit, events := p.makeEventHooks("evaluate", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
 	}
 
-	decoded, err := decodeJSReturnValue(ret)
+	decoded, err := p.callPluginFunction("evaluate", p.evaluateFn, input, options)
 	if err != nil {
-		return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: invalid return value")
+		return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
 	}
 
 	er, err := decodeEvalResult(decoded)
@@ -289,14 +334,14 @@ func (p *optimizerPlugin) Run(input map[string]any, candidate gepaopt.Candidate,
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-	ret, err := p.runFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
-	if err != nil {
-		return nil, errors.Wrap(err, "plugin run: call failed")
+	if emit, events := p.makeEventHooks("run", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
 	}
 
-	decoded, err := decodeJSReturnValue(ret)
+	decoded, err := p.callPluginFunction("run", p.runFn, input, options)
 	if err != nil {
-		return nil, errors.Wrap(err, "plugin run: invalid return value")
+		return nil, errors.Wrap(err, "plugin run: call failed")
 	}
 	return decoded, nil
 }
@@ -324,15 +369,14 @@ func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOption
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-
-	ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
-	if err != nil {
-		return "", "", errors.Wrap(err, "plugin merge: call failed")
+	if emit, events := p.makeEventHooks("merge", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
 	}
 
-	decoded, err := decodeJSReturnValue(ret)
+	decoded, err := p.callPluginFunction("merge", p.mergeFn, input, options)
 	if err != nil {
-		return "", "", errors.Wrap(err, "plugin merge: invalid return value")
+		return "", "", errors.Wrap(err, "plugin merge: call failed")
 	}
 
 	merged, err := decodeMergeOutput(decoded, in.ParamKey)
@@ -365,13 +409,13 @@ func (p *optimizerPlugin) InitialCandidate(opts pluginEvaluateOptions) (gepaopt.
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-	ret, err := p.initialCandidateFn(p.instance, p.rt.vm.ToValue(options))
+	if emit, events := p.makeEventHooks("initialCandidate", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
+	}
+	decoded, err := p.callPluginFunction("initialCandidate", p.initialCandidateFn, options)
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin initialCandidate: call failed")
-	}
-	decoded, err := decodeJSReturnValue(ret)
-	if err != nil {
-		return nil, errors.Wrap(err, "plugin initialCandidate: invalid return value")
 	}
 	return decodeCandidate(decoded)
 }
@@ -398,14 +442,13 @@ func (p *optimizerPlugin) SelectComponents(in gepaopt.ComponentSelectionInput, o
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-
-	ret, err := p.selectComponentsFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if emit, events := p.makeEventHooks("selectComponents", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
+	}
+	decoded, err := p.callPluginFunction("selectComponents", p.selectComponentsFn, input, options)
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin selectComponents: call failed")
-	}
-	decoded, err := decodeJSReturnValue(ret)
-	if err != nil {
-		return nil, errors.Wrap(err, "plugin selectComponents: invalid return value")
 	}
 	components, err := decodeStringList(decoded)
 	if err != nil {
@@ -436,14 +479,13 @@ func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts plugi
 		"engineOptions": opts.EngineOptions,
 		"tags":          opts.Tags,
 	}
-
-	ret, err := p.componentSideInfoFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+	if emit, events := p.makeEventHooks("componentSideInfo", opts.EventSink); emit != nil {
+		options["emitEvent"] = emit
+		options["events"] = events
+	}
+	decoded, err := p.callPluginFunction("componentSideInfo", p.componentSideInfoFn, input, options)
 	if err != nil {
 		return "", errors.Wrap(err, "plugin componentSideInfo: call failed")
-	}
-	decoded, err := decodeJSReturnValue(ret)
-	if err != nil {
-		return "", errors.Wrap(err, "plugin componentSideInfo: invalid return value")
 	}
 	return decodeSideInfoOutput(decoded)
 }
@@ -452,11 +494,11 @@ func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts plugi
 // - if JS returns a string, attempt JSON parsing
 // - if JS returns bytes, attempt JSON parsing
 // - otherwise, return exported value
-func decodeJSReturnValue(ret goja.Value) (any, error) {
-	if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+func decodeJSReturnValue(ret any) (any, error) {
+	if ret == nil {
 		return nil, fmt.Errorf("returned null/undefined")
 	}
-	if raw, ok := ret.Export().(string); ok {
+	if raw, ok := ret.(string); ok {
 		if strings.TrimSpace(raw) == "" {
 			return nil, fmt.Errorf("returned empty string")
 		}
@@ -466,14 +508,14 @@ func decodeJSReturnValue(ret goja.Value) (any, error) {
 		}
 		return raw, nil
 	}
-	if bytes, ok := ret.Export().([]uint8); ok {
+	if bytes, ok := ret.([]uint8); ok {
 		var jsonValue any
 		if err := json.Unmarshal(bytes, &jsonValue); err == nil {
 			return jsonValue, nil
 		}
 		return bytes, nil
 	}
-	return ret.Export(), nil
+	return ret, nil
 }
 
 func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
@@ -740,6 +782,3 @@ func toFloat(v any) (float64, error) {
 		return 0, fmt.Errorf("unsupported numeric type %T", v)
 	}
 }
-
-// Ensure the require package is linked (some Go compilers prune unused imports).
-var _ = require.Require

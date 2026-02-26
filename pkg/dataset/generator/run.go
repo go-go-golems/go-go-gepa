@@ -8,6 +8,7 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/require"
+	"github.com/go-go-golems/go-go-goja/pkg/runtimeowner"
 )
 
 type RunInput struct {
@@ -18,6 +19,7 @@ type RunInput struct {
 	ResolveOptions ResolveOptions
 	HostContext    map[string]any
 	AppName        string
+	EventSink      EventSink
 }
 
 type RunResult struct {
@@ -32,7 +34,7 @@ type RunResult struct {
 	DBWrite        WriteResult
 }
 
-func RunWithRuntime(vm *goja.Runtime, req *require.RequireModule, input RunInput) (*RunResult, error) {
+func RunWithRuntime(vm *goja.Runtime, runner runtimeowner.Runner, req *require.RequireModule, input RunInput) (*RunResult, error) {
 	scriptPath := strings.TrimSpace(input.ScriptPath)
 	configPath := strings.TrimSpace(input.ConfigPath)
 	if scriptPath == "" {
@@ -85,7 +87,7 @@ func RunWithRuntime(vm *goja.Runtime, req *require.RequireModule, input RunInput
 	hostContext["configPath"] = filepath.ToSlash(absConfig)
 	hostContext["configName"] = resolvedCfg.Config.Name
 
-	plugin, meta, err := LoadPlugin(vm, req, absScript, hostContext)
+	plugin, meta, err := LoadPlugin(vm, runner, req, absScript, hostContext)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +103,7 @@ func RunWithRuntime(vm *goja.Runtime, req *require.RequireModule, input RunInput
 		Profile:       input.Profile,
 		EngineOptions: input.EngineOptions,
 		Tags:          pluginTags,
+		EventSink:     input.EventSink,
 	})
 	if err != nil {
 		return nil, err
