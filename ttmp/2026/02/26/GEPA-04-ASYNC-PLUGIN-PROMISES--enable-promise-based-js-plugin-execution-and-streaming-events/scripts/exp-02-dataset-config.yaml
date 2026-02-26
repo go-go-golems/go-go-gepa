@@ -1,0 +1,12 @@
+apiVersion: gepa.dataset-generate/v2
+name: gepa04-async-stream-demo
+count: 2
+prompting:
+  user_template: "unused"
+validation:
+  required_fields:
+    - id
+    - text
+    - label
+  max_retries: 0
+  drop_invalid: false

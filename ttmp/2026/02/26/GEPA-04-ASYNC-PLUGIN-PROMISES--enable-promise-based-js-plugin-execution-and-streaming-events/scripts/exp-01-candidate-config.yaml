@@ -1,0 +1,10 @@
+apiVersion: gepa.candidate-run/v2
+candidate:
+  prompt: |
+    Extract core entities and relationship sentiment from this conversation.
+metadata:
+  candidate_id: "gepa04-candidate-001"
+  reflection_used: "none"
+  tags:
+    suite: "gepa04"
+    scenario: "candidate-streaming"
