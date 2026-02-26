@@ -85,3 +85,39 @@ Executed hard-cut migration with no geppetto/plugins alias: removed core module 
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/geppetto/pkg/js/modules/geppetto/module_test.go — added regression assertion that geppetto/plugins is unavailable
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/design-doc/01-migration-plan-extractor-and-optimizer-plugins.md — final no-alias architecture record
 
+## 2026-02-26
+
+Reverted GEPA-01 planning direction back to go-go-gepa implementation work. Updated design/index/tasks to make remaining work explicit: implement go-go-gepa plugin module ownership and carry `registryIdentifier` through loader/runtime/reporting/sqlite. Also codified scope guardrails that `gepa/` and `2026-02-18--cozodb-extraction/` are reference-only.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/design-doc/01-migration-plan-extractor-and-optimizer-plugins.md — reinstated go-go-gepa implementation plan
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/tasks.md — updated action checklist for immediate implementation
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/index.md — updated ticket scope and status
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/AGENT.md — added scope boundaries (`gepa/` and `2026-02-18--cozodb-extraction/` reference-only)
+
+## 2026-02-26 (Build pass complete in go-go-gepa)
+
+- Added native plugin module ownership in `go-go-gepa` via `require("gepa/plugins")`.
+- Added `registryIdentifier` carriage through loader metadata, host context, optimize/eval tags, report JSON payloads, and sqlite recorder rows.
+- Added recorder schema migration for `plugin_registry_identifier` and report query support (`id@registry` grouping/printing).
+- Added/updated tests for:
+  - descriptor default/explicit registry decode,
+  - host context injection,
+  - recorder persistence + legacy schema migration,
+  - eval report registry visibility.
+- Fixed decode bug where missing JS descriptor field could become literal `"undefined"` instead of defaulting.
+- Migrated runner example scripts to import `require("gepa/plugins")`.
+
+### Validation
+
+- `go test ./cmd/gepa-runner -count=1` passed.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/gepa_plugins_module.go — new go-go-gepa-owned plugin contract module
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/plugin_loader.go — registry metadata decode/default and host context injection
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go — optimize flow tag/report propagation
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/eval_command.go — eval flow tag/report propagation
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/run_recorder.go — sqlite schema/persistence migration
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/eval_report.go — report query/format changes for registry identifier

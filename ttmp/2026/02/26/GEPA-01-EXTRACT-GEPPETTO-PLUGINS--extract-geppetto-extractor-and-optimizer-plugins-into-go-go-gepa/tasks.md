@@ -4,18 +4,21 @@
 
 - [x] Create ticket workspace and base docs for `GEPA-01-EXTRACT-GEPPETTO-PLUGINS`.
 - [x] Produce evidence-backed architecture analysis for plugin ownership boundaries.
-- [x] Identify extractor + optimizer consumer blast radius (`geppetto`, `go-go-gepa`, legacy runners, extraction runner).
-- [x] Define migration architecture with phased compatibility strategy.
-- [x] Define how to carry a `registryIdentifier` in plugin metadata/reporting.
-- [x] Maintain chronological investigation diary with command logs and findings.
-- [x] Align implementation direction with user constraints: ignore `gepa/`, hard-cut legacy `geppetto/plugins`, no compatibility alias, keep `gepa_plugin_contract.js`.
-- [x] Remove untracked files from `geppetto/` workspace as requested.
+- [x] Remove `geppetto/plugins` from geppetto core (hard cut).
+- [x] Keep local `go-go-gepa` optimizer helper contract file (`gepa_plugin_contract.js`).
 
-## Active Implementation Sprint
+## Reinstated Implementation Plan (go-go-gepa focused)
 
-- [x] Task 1: Remove `geppetto/plugins` module registration/implementation from `geppetto` and delete helper tests tied to that module.
-- [x] Task 2: Update `geppetto` docs to remove plugin-helper API claims and describe hard-cut behavior.
-- [x] Task 3: Migrate extractor scripts in `2026-02-18--cozodb-extraction/cozo-relationship-js-runner` off `require("geppetto/plugins")` while preserving descriptor compatibility.
-- [x] Task 4: Add hard-cut regression checks/tests so `geppetto/plugins` does not silently return.
-- [x] Task 5: Verify builds/tests in touched repos and commit per task (small, reviewable commits). (`cozo-relationship-js-runner` Go test is environment-blocked by missing go.sum entries; captured in diary)
-- [x] Task 6: Update GEPA-01 design/tasks/changelog/diary to reflect final no-alias implementation state.
+- [x] Add go-go-gepa native plugin module ownership (`gepa/plugins` in go-go-gepa runtime).
+- [x] Extend plugin metadata decode with `registryIdentifier` in `plugin_loader.go`.
+- [x] Propagate `registryIdentifier` into host context + hook tags in optimize/eval flows.
+- [x] Add `plugin_registry_identifier` persistence to sqlite recorder schema and inserts.
+- [x] Include `registryIdentifier` in run/eval report outputs.
+- [x] Add tests for decode/default behavior + recorder migration + metadata visibility in report rows.
+- [x] Update docs/examples in go-go-gepa ticket docs to reflect the above implementation.
+
+## Scope Guardrails
+
+- [x] `gepa/` marked reference-only.
+- [x] `2026-02-18--cozodb-extraction/` marked reference-only.
+- [x] Keep active implementation changes constrained to `go-go-gepa/` unless explicitly requested.

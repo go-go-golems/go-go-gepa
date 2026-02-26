@@ -1,7 +1,7 @@
 ---
 Title: 'Migration plan: extractor and optimizer plugins'
 Ticket: GEPA-01-EXTRACT-GEPPETTO-PLUGINS
-Status: active
+Status: complete
 Topics:
     - architecture
     - plugins
@@ -14,155 +14,99 @@ Intent: long-term
 Owners: []
 RelatedFiles:
     - Path: geppetto/pkg/js/modules/geppetto/module.go
-      Note: geppetto module registration no longer includes geppetto/plugins
-    - Path: geppetto/pkg/js/modules/geppetto/module_test.go
-      Note: hard-cut regression test asserts require("geppetto/plugins") fails
-    - Path: geppetto/pkg/doc/topics/13-js-api-reference.md
-      Note: JS API reference updated to state plugin helpers are no longer exported by geppetto
-    - Path: geppetto/pkg/doc/topics/14-js-api-user-guide.md
-      Note: JS guide updated to remove geppetto/plugins authoring guidance
+      Note: hard-cut removed geppetto/plugins from core module registration
+    - Path: go-go-gepa/cmd/gepa-runner/js_runtime.go
+      Note: runtime wiring point where new go-go-gepa plugin module should be registered
+    - Path: go-go-gepa/cmd/gepa-runner/plugin_loader.go
+      Note: optimizer metadata decode and registryIdentifier propagation point
+    - Path: go-go-gepa/cmd/gepa-runner/main.go
+      Note: optimize flow metadata/report propagation
+    - Path: go-go-gepa/cmd/gepa-runner/eval_command.go
+      Note: eval flow metadata/report propagation
+    - Path: go-go-gepa/cmd/gepa-runner/run_recorder.go
+      Note: sqlite schema and persistence for plugin metadata
     - Path: go-go-gepa/cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js
-      Note: retained local optimizer contract helper (explicitly kept)
-    - Path: 2026-02-18--cozodb-extraction/cozo-relationship-js-runner/scripts/relation_extractor_template.js
-      Note: extractor script migrated off geppetto/plugins helper import
-    - Path: 2026-02-18--cozodb-extraction/cozo-relationship-js-runner/scripts/relation_extractor_reflective.js
-      Note: extractor script migrated off geppetto/plugins helper import
+      Note: current local optimizer contract helper retained in go-go-gepa
 ExternalSources: []
-Summary: Hard-cut migration plan and implementation notes for removing geppetto/plugins with no compatibility alias, while keeping local GEPA optimizer helper usage.
-LastUpdated: 2026-02-26T12:34:00-05:00
-WhatFor: Document the no-alias migration and remaining follow-up work (registry identifier propagation).
-WhenToUse: Use when implementing remaining plugin metadata work or validating that legacy plugin module imports are gone.
+Summary: Implemented go-go-gepa ownership of optimizer plugin contract module plus end-to-end registryIdentifier carriage.
+LastUpdated: 2026-02-26T13:40:00-05:00
+WhatFor: Capture GEPA-01 implementation decisions and final technical state.
+WhenToUse: Use when maintaining plugin metadata flow and GEPA runner reporting/storage.
 ---
 
-# Migration plan: extractor and optimizer plugins
+# Migration Plan: Extractor and Optimizer Plugins
 
 ## Executive Summary
 
-This ticket now follows a hard-cut policy:
+GEPA-01 implementation is complete in `go-go-gepa`:
+1. Plugin contract ownership was moved into a new native JS module `require("gepa/plugins")`.
+2. `registryIdentifier` is now carried end-to-end from descriptor decode through host context, hook tags, CLI/report JSON, and sqlite persistence.
+3. No compatibility alias was introduced.
 
-1. `geppetto` no longer registers `require("geppetto/plugins")`.
-2. No compatibility alias is provided.
-3. `go-go-gepa` keeps local optimizer helper usage via `./lib/gepa_plugin_contract`.
-4. Extractor scripts that used `geppetto/plugins` were migrated to plain descriptor exports.
+## Final State
 
-The remaining follow-up scope in this ticket is registry identifier carriage (`registryIdentifier`) through loader/reporting/recording surfaces.
+1. `cmd/gepa-runner/gepa_plugins_module.go` registers `gepa/plugins` and exports:
+   - `OPTIMIZER_PLUGIN_API_VERSION`
+   - `defineOptimizerPlugin(...)`
+2. `optimizerPluginMeta` includes `RegistryIdentifier` and defaults to `local`.
+3. `pluginRegistryIdentifier` is injected into plugin `create(hostContext)` and propagated in hook tags (`initialCandidate`, `evaluate`, `merge`, `selectComponents`, `componentSideInfo`).
+4. Recorder schema stores `plugin_registry_identifier` in `gepa_runs` with additive migration support for existing DBs.
+5. Eval/report outputs include `registryIdentifier` in printed/json plugin metadata.
+6. Runner sample scripts now import `require("gepa/plugins")`.
 
-## Problem Statement and Scope
+## Implementation Notes
 
-### Problem addressed
+### Module ownership
 
-`geppetto/plugins` mixed application plugin-contract behavior into a core framework module. That coupling created:
+1. Added native module file `cmd/gepa-runner/gepa_plugins_module.go`.
+2. Registered module in `cmd/gepa-runner/js_runtime.go`.
+3. Migrated runner example scripts to import `gepa/plugins`.
 
-1. unclear ownership boundaries,
-2. duplicated validation logic across repos,
-3. brittle import behavior for runners that depended on helper registration details.
+### Metadata decode and propagation
 
-### Scope in this implementation pass
+1. Extended `optimizerPluginMeta` and decode path in `cmd/gepa-runner/plugin_loader.go`.
+2. Added robust defaulting for missing JS values (avoid accidental `"undefined"` string propagation).
+3. Added plugin registry tags in optimize/eval command flows.
 
-Completed in this pass:
+### Storage and reporting
 
-1. remove plugin helper module registration from `geppetto`,
-2. delete `plugins_module.go` from geppetto,
-3. update geppetto tests/docs to reflect removal,
-4. migrate extractor scripts away from `geppetto/plugins`.
+1. Added `plugin_registry_identifier` to `runRecorderConfig`, `runRecord`, insert SQL, schema create SQL, and migration logic.
+2. Updated eval report row/summary queries and table rendering to include registry identifier.
+3. Updated `--out-report` payload generation in optimize/eval commands.
 
-Out of scope in this pass:
+### Tests
 
-1. replacing `require("geppetto")` core runtime APIs,
-2. changing optimizer algorithm internals,
-3. implementing full registry identifier persistence changes.
+1. Added plugin loader tests for:
+   - default registry identifier,
+   - explicit registry identifier,
+   - host context injection.
+2. Added recorder tests for:
+   - persisted `plugin_registry_identifier`,
+   - legacy schema migration adding the new column.
+3. Extended eval report tests to assert registry identifier visibility.
 
-## Current-State Architecture (Post-Change)
+## Decisions and Constraints
 
-### 1) Geppetto core module surface
+1. No compatibility alias for `geppetto/plugins`.
+2. `gepa/` and `2026-02-18--cozodb-extraction/` are reference-only for this workstream.
+3. Focus implementation in `go-go-gepa` plus GEPA-01 ticket docs.
 
-Observed state:
+## Residual Risks
 
-1. `pkg/js/modules/geppetto/module.go` now registers only `ModuleName = "geppetto"`.
-2. `pkg/js/modules/geppetto/plugins_module.go` is removed.
-3. `pkg/js/modules/geppetto/module_test.go` now includes a regression assertion that `require("geppetto/plugins")` fails.
+1. External plugin scripts that do not use `defineOptimizerPlugin` may still set malformed descriptor fields.
+2. Existing sqlite rows created before migration can still contain null registry values (report path defaults these to `local`).
 
-Consequence:
+## Validation Checklist
 
-- plugin helper imports from geppetto are a hard error by design.
-
-### 2) Optimizer contract ownership in GEPA runtime
-
-Observed state:
-
-1. `go-go-gepa` keeps local helper `cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js`.
-2. bundled optimizer scripts in `go-go-gepa` already use that local helper path.
-
-Consequence:
-
-- optimizer plugin authoring in `go-go-gepa` is decoupled from geppetto plugin helper exports.
-
-### 3) Extractor scripts migrated off geppetto/plugins
-
-Observed state:
-
-1. `cozo-relationship-js-runner` scripts now export plain descriptor objects with explicit `apiVersion` + `kind`.
-2. helper import `require("geppetto/plugins")` was removed from those scripts.
-
-Consequence:
-
-- extractor script loading no longer depends on geppetto plugin helper module.
-
-## Design Decisions
-
-1. Hard cut, no alias:
-- rejected any temporary `geppetto/plugins` compatibility alias.
-
-2. Keep `gepa_plugin_contract.js` (optimizer helper) in go-go-gepa:
-- preserves ergonomic local JS descriptor validation without reintroducing geppetto coupling.
-
-3. Prefer plain descriptor exports for extractor scripts:
-- simplest migration path where host loaders already validate descriptor schema.
-
-## Testing and Validation
-
-Completed validation:
-
-1. `go test ./pkg/js/modules/geppetto -count=1` (geppetto) passed.
-2. geppetto pre-commit hook executed full test/lint successfully during commit.
-3. static grep check across targeted repos confirms no runtime `require("geppetto/plugins")` usage remains in maintained code paths (excluding explicit negative-test/docs mention).
-
-Validation blocker captured:
-
-1. `cozo-relationship-js-runner` local `go test` is currently blocked in this environment by missing `go.sum` entries when run with `GOWORK=off`.
-2. This is a repo environment/dependency state issue, not a compile error from the script change itself.
-
-## Risks and Follow-ups
-
-### Residual risks
-
-1. External downstream scripts outside this workspace may still import `geppetto/plugins` and now fail.
-2. Registry provenance is still incomplete until `registryIdentifier` is wired through loaders/recorders.
-
-### Remaining follow-ups
-
-1. Add `registryIdentifier` to optimizer + extractor metadata structs.
-2. Propagate to host context/tags/report JSON.
-3. Extend recorder schema with `plugin_registry_identifier`.
-4. Add integration tests asserting presence of new metadata field.
-
-## Implementation Record (Commits)
-
-1. `geppetto` commit `d102477`:
-- removed module registration + deleted plugins module + added hard-cut regression test.
-
-2. `geppetto` commit `a9c2e61`:
-- updated JS docs to remove plugin helper API claims.
-
-3. `cozo-relationship-js-runner` commit `b694000`:
-- removed `geppetto/plugins` imports from extractor scripts and switched to explicit descriptor export.
+1. `go test ./cmd/gepa-runner -count=1` passed.
+2. Unit tests cover descriptor default/explicit registry behavior.
+3. Unit tests cover sqlite migration and report query visibility for `plugin_registry_identifier`.
 
 ## References
 
-1. `geppetto/pkg/js/modules/geppetto/module.go`
-2. `geppetto/pkg/js/modules/geppetto/module_test.go`
-3. `geppetto/pkg/doc/topics/13-js-api-reference.md`
-4. `geppetto/pkg/doc/topics/14-js-api-user-guide.md`
-5. `go-go-gepa/cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js`
-6. `2026-02-18--cozodb-extraction/cozo-relationship-js-runner/scripts/relation_extractor_template.js`
-7. `2026-02-18--cozodb-extraction/cozo-relationship-js-runner/scripts/relation_extractor_reflective.js`
+1. `go-go-gepa/cmd/gepa-runner/js_runtime.go`
+2. `go-go-gepa/cmd/gepa-runner/plugin_loader.go`
+3. `go-go-gepa/cmd/gepa-runner/main.go`
+4. `go-go-gepa/cmd/gepa-runner/eval_command.go`
+5. `go-go-gepa/cmd/gepa-runner/run_recorder.go`
+6. `go-go-gepa/cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js`

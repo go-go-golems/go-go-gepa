@@ -1,7 +1,7 @@
 ---
 Title: Investigation diary
 Ticket: GEPA-01-EXTRACT-GEPPETTO-PLUGINS
-Status: active
+Status: complete
 Topics:
     - architecture
     - plugins
@@ -24,10 +24,10 @@ RelatedFiles:
     - Path: go-go-gepa/cmd/gepa-runner/main.go
       Note: optimize flow host context and recorder wiring
 ExternalSources: []
-Summary: Chronological investigation log for moving plugin contracts out of geppetto and carrying a registry identifier.
-LastUpdated: 2026-02-26T11:40:46-05:00
-WhatFor: Preserve command-level evidence and reasoning used to produce the migration design.
-WhenToUse: Use when implementing the migration or auditing assumptions behind the design decisions.
+Summary: Chronological investigation and implementation diary for GEPA-01 plugin module ownership and registry identifier propagation.
+LastUpdated: 2026-02-26T13:40:00-05:00
+WhatFor: Preserve command-level evidence, implementation details, and validation outcomes for GEPA-01.
+WhenToUse: Use when auditing GEPA runner plugin metadata flow or maintaining GEPA-01 follow-up work.
 ---
 
 
@@ -318,6 +318,95 @@ remarquee cloud ls /ai/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS --long --non-
 
 Findings:
 1. Remarquee status/account checks succeeded.
+
+## Step 14: Revert GEPA-01 plan back to go-go-gepa implementation track
+
+The working ticket direction had drifted toward documenting the hard-cut outcome only. The user requested a return to the earlier implementation-oriented plan that actually adds work inside `go-go-gepa`. I treated this as a planning correction request, not a request to reopen work in other directories.
+
+I restored GEPA-01 docs to an implementation-forward state and explicitly constrained scope. I also added this detailed diary step format so future work keeps the same continuation quality.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Going back to GEPA-01, the first version was actually adding things to go-go-gepa/ and you reverted it in a subsequent. I do actually want you to do that work. Can you revert the plan and tell me what needs to be done now. Also update AGENT.md to make sure that gepa/ and 2026-02-18--cozodb-extraction are just for reference, and are not in scope of our work."
+
+**Assistant interpretation:** Repoint GEPA-01 documentation back to the go-go-gepa implementation plan, provide a clear next-work checklist, and update workspace instructions so `gepa/` and `2026-02-18--cozodb-extraction/` are out of active scope.
+
+**Inferred user intent:** Resume real implementation momentum in `go-go-gepa` and avoid accidental churn in reference-only directories.
+
+**User prompt (verbatim):** "From now on also keep a detailed diary $diary"
+
+**Assistant interpretation:** Keep diary updates in detailed, continuation-ready format for subsequent steps.
+
+**Inferred user intent:** Ensure traceability and continuity for ongoing implementation work.
+
+### What I did
+
+- Inspected GEPA-01 history around commit `e8f851d` to identify where the plan changed.
+- Compared current GEPA-01 docs to the immediately previous version (`e8f851d^`) to recover the earlier go-go-gepa-focused direction.
+- Rewrote GEPA-01 documents to reinstate the implementation track:
+  - `design-doc/01-migration-plan-extractor-and-optimizer-plugins.md`
+  - `tasks.md`
+  - `index.md`
+  - `changelog.md` (new entry recording the planning reversal)
+- Updated `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/AGENT.md` with explicit scope boundaries:
+  - `gepa/` reference-only
+  - `2026-02-18--cozodb-extraction/` reference-only
+- Added this detailed diary step per `$diary` request.
+
+### Why
+
+- The requested outcome is to continue concrete work in `go-go-gepa`, not freeze at a post-hard-cut summary.
+- Scope boundaries reduce future drift into directories currently intended only for reference.
+
+### What worked
+
+- Git history clearly isolated the plan flip point and made restoration straightforward.
+- Documentation updates now present a concrete phased checklist for immediate `go-go-gepa` work.
+- AGENT scope boundaries now align with the user’s stated expectations.
+
+### What didn't work
+
+- No command/runtime errors in this step.
+- No implementation code changes were attempted yet (this step was planning + scope correction only).
+
+### What I learned
+
+- The correct continuation path is to treat hard-cut completion as done context, while actively planning/implementing remaining `go-go-gepa` ownership + metadata propagation work.
+- Explicit scope clauses in `AGENT.md` are useful to prevent accidental cross-repo edits during ticket continuation.
+
+### What was tricky to build
+
+- The main tricky point was reconciling two true states at once:
+  1. hard-cut removal already happened in other repos,
+  2. GEPA-01 still needs forward implementation inside `go-go-gepa`.
+- I handled this by writing the restored plan as “reinstated implementation from current state,” rather than blindly reverting docs to pre-hard-cut assumptions.
+
+### What warrants a second pair of eyes
+
+- Confirm that the reinstated task list matches the exact expected order for implementation (especially whether module ownership and `registryIdentifier` propagation should be delivered in one PR or phased PRs).
+
+### What should be done in the future
+
+1. Start Phase 1 implementation in `go-go-gepa`: plugin module ownership/runtime registration.
+2. Implement `registryIdentifier` metadata decode + default behavior in loader.
+3. Extend recorder/reporting surfaces and add focused tests.
+
+### Code review instructions
+
+- Start with these docs:
+  - `ttmp/.../GEPA-01.../design-doc/01-migration-plan-extractor-and-optimizer-plugins.md`
+  - `ttmp/.../GEPA-01.../tasks.md`
+  - `ttmp/.../GEPA-01.../index.md`
+- Verify scope boundaries in `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/AGENT.md`.
+- Validate by reading the latest changelog entry and ensuring it matches updated task/design direction.
+
+### Technical details
+
+- History inspection commands used:
+  - `git -C go-go-gepa show --name-only --oneline e8f851d`
+  - `git -C go-go-gepa show e8f851d^:<ticket-doc-path>`
+- Ticket paths updated:
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/*`
 2. Dry-run bundle succeeded and listed all included docs.
 3. Actual bundle upload succeeded.
 4. Remote listing confirms file presence:
@@ -455,3 +544,95 @@ Findings:
 
 Interpretation:
 - Ticket documentation is synchronized with implementation reality and ready for continuation on registry identifier follow-up work.
+
+## Step 20 - Build pass: implement go-go-gepa ownership + registryIdentifier carriage
+
+This step executed the concrete GEPA-01 implementation in `go-go-gepa` rather than just planning. The main objective was to finish module ownership and metadata carriage in runnable code, then prove behavior with tests and recorder/report assertions.
+
+A subtle decode bug surfaced while writing tests: reading missing JS fields with `.String()` converted `undefined` into the literal string `"undefined"`. That would have poisoned registry metadata defaults. The fix was implemented before final validation.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Ok, build GEPA-01"
+
+**Assistant interpretation:** Implement the reinstated GEPA-01 plan now in `go-go-gepa` and finish ticket docs/diary with tested results.
+
+**Inferred user intent:** Move from analysis to completed, test-backed delivery with commit-ready artifacts and diary traceability.
+
+### What I did
+
+1. Implemented native plugin module ownership in go-go-gepa:
+   - added `cmd/gepa-runner/gepa_plugins_module.go`,
+   - registered module in `cmd/gepa-runner/js_runtime.go`,
+   - migrated runner example scripts to `require("gepa/plugins")`.
+2. Extended plugin metadata carriage:
+   - added `RegistryIdentifier` in loader meta,
+   - propagated into host context and hook tags in optimize/eval flows.
+3. Extended persistence/reporting:
+   - added `plugin_registry_identifier` to recorder config, run inserts, schema, and additive migration,
+   - updated eval report row/summary queries and table output,
+   - updated optimize/eval `--out-report` plugin metadata sections.
+4. Added tests:
+   - `plugin_loader_test.go` for default/explicit registry decode and host context injection,
+   - `run_recorder_test.go` for persisted registry value and legacy schema migration,
+   - `eval_report_test.go` for registry visibility in queried rows and table output.
+5. Validated:
+   - `go test ./cmd/gepa-runner -count=1` passed after changes.
+
+### Why
+
+1. GEPA-01 requirement was to make plugin contract/runtime ownership explicit in `go-go-gepa`.
+2. User requested carrying a registry identifier and explicitly no compatibility alias.
+3. Recorder and report surfaces had to reflect the new metadata so downstream analysis can group by plugin source.
+
+### What worked
+
+1. New `gepa/plugins` module loads correctly; existing example scripts pass smoke tests.
+2. Registry metadata now flows through CLI execution paths and DB/report outputs.
+3. Recorder migration path safely adds missing column for legacy databases.
+
+### What didn't work
+
+1. Initial decode approach for optional JS fields used `.String()`, which turned missing `registryIdentifier` into `"undefined"`.
+2. This was fixed by adding `decodeOptionalJSString(...)` and covered by unit tests.
+
+### What I learned
+
+1. Optional JS descriptor fields should never use direct `.String()` conversion without undefined/null guards.
+2. SQL schema migrations for additive metadata columns are straightforward if report queries are null-safe and default-aware.
+
+### What was tricky to build
+
+Keeping default behavior consistent across loader decode, host context propagation, recorder persistence, and report fallback required the same default value (`local`) in every layer. The tricky part was avoiding divergence between JS descriptor helpers and Go decode behavior.
+
+### What warrants a second pair of eyes
+
+1. Whether `defaultPluginRegistryIdentifier = "local"` should become configurable at runtime.
+2. Whether strict type validation should be added for all descriptor fields (currently mostly string-coercive, except helper path).
+
+### What should be done in the future
+
+1. Add an integration smoke command asserting `registryIdentifier` in actual `--out-report` files and sqlite rows from CLI invocations.
+
+### Code review instructions
+
+1. Start with metadata flow:
+   - `cmd/gepa-runner/gepa_plugins_module.go`
+   - `cmd/gepa-runner/plugin_loader.go`
+   - `cmd/gepa-runner/main.go`
+   - `cmd/gepa-runner/eval_command.go`
+2. Then review persistence/reporting:
+   - `cmd/gepa-runner/run_recorder.go`
+   - `cmd/gepa-runner/eval_report.go`
+3. Validate using:
+   - `go test ./cmd/gepa-runner -count=1`
+
+### Technical details
+
+Commands used in this step:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa
+gofmt -w cmd/gepa-runner/*.go cmd/gepa-runner/*_test.go
+go test ./cmd/gepa-runner -count=1
+```

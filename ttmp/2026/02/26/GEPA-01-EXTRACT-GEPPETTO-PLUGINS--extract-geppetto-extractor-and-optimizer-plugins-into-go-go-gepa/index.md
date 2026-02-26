@@ -1,7 +1,7 @@
 ---
 Title: Extract geppetto extractor and optimizer plugins into go-go-gepa
 Ticket: GEPA-01-EXTRACT-GEPPETTO-PLUGINS
-Status: active
+Status: complete
 Topics:
     - architecture
     - plugins
@@ -18,39 +18,34 @@ RelatedFiles:
     - Path: go-go-gepa/ttmp/2026/02/26/GEPA-01-EXTRACT-GEPPETTO-PLUGINS--extract-geppetto-extractor-and-optimizer-plugins-into-go-go-gepa/reference/01-investigation-diary.md
       Note: chronological investigation evidence
 ExternalSources: []
-Summary: Ticket index for hard-cut removal of geppetto/plugins and follow-up registry identifier propagation.
-LastUpdated: 2026-02-26T12:34:00-05:00
-WhatFor: Coordinate investigation and implementation planning for plugin contract extraction.
-WhenToUse: Start here to navigate design, diary, tasks, and changelog for this ticket.
+Summary: Ticket index for completed go-go-gepa implementation of plugin module ownership and registryIdentifier propagation.
+LastUpdated: 2026-02-26T13:40:00-05:00
+WhatFor: Record GEPA-01 implementation outcomes and traceability for follow-up work.
+WhenToUse: Start here to navigate current design, diary, tasks, and changelog.
 ---
-
 
 # Extract geppetto extractor and optimizer plugins into go-go-gepa
 
 ## Overview
 
-This ticket documents the hard-cut removal of `geppetto/plugins` from core geppetto runtime, migration of affected scripts, and follow-up work to carry `registryIdentifier`.
+This ticket tracks the completed GEPA-01 implementation in `go-go-gepa`:
 
-## Primary Deliverables
-
-1. Design doc:
-- `design-doc/01-migration-plan-extractor-and-optimizer-plugins.md`
-
-2. Investigation diary:
-- `reference/01-investigation-diary.md`
+1. own plugin module behavior in go-go-gepa,
+2. propagate `registryIdentifier` through loader/runtime/reporting/storage,
+3. keep no compatibility alias.
 
 ## Current Status
 
-1. Hard-cut removal of `geppetto/plugins` is implemented and committed.
-2. Extractor scripts that depended on `geppetto/plugins` were migrated to plain descriptors.
-3. Remaining work is registry identifier propagation through plugin metadata/reporting.
+1. `go-go-gepa` now owns optimizer plugin contract helpers via native module `require("gepa/plugins")`.
+2. `registryIdentifier` is carried through loader metadata, host context, hook tags, reports, and sqlite (`plugin_registry_identifier`).
+3. Runner example scripts were migrated to `require("gepa/plugins")` and package tests cover decode defaults + recorder migration.
+4. Scope remained constrained to `go-go-gepa/`; `gepa/` and `2026-02-18--cozodb-extraction/` stayed reference-only.
 
-## Key Decisions
+## Primary Deliverables
 
-1. Plugin contract helpers are not core framework APIs and should move out of `geppetto`.
-2. No compatibility alias (`geppetto/plugins`) is provided; removal is immediate.
-3. Keep local helper `gepa_plugin_contract.js` in `go-go-gepa` for optimizer scripts.
-4. Introduce `registryIdentifier` in plugin metadata and propagate through reports/recorders.
+1. Design doc: `design-doc/01-migration-plan-extractor-and-optimizer-plugins.md`
+2. Investigation diary: `reference/01-investigation-diary.md`
+3. Execution checklist: `tasks.md`
 
 ## Tasks
 
