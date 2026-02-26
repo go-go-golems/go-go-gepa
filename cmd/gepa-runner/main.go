@@ -19,6 +19,7 @@ import (
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 	"github.com/go-go-golems/glazed/pkg/help"
 	help_cmd "github.com/go-go-golems/glazed/pkg/help/cmd"
+	runnerdoc "github.com/go-go-golems/go-go-gepa/cmd/gepa-runner/doc"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -430,8 +431,8 @@ func main() {
 	cobra.CheckErr(err)
 
 	helpSystem := help.NewHelpSystem()
+	cobra.CheckErr(runnerdoc.AddDocToHelpSystem(helpSystem))
 	help_cmd.SetupCobraRootCommand(helpSystem, rootCmd)
-	cobra.CheckErr(err)
 
 	optCmd, err := NewOptimizeCommand()
 	cobra.CheckErr(err)

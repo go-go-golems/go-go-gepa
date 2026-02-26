@@ -213,6 +213,55 @@ Return:
 - `engineOptions`
 - `tags`
 
+## Async plugin methods and stream events
+
+`gepa-runner` now supports Promise-returning plugin hooks in addition to synchronous returns.
+
+Supported Promise-aware hooks include:
+
+- optimizer path: `run`, `evaluate`, `merge`, `initialCandidate`, `selectComponents`, `componentSideInfo`, `dataset`
+- dataset path: `generateOne`
+
+### Event emission hooks
+
+For hooks that receive `options`, plugins can emit stream events while asynchronous work is running:
+
+- `options.emitEvent(payload)`
+- `options.events.emit(payload)`
+
+When command flag `--stream` is enabled (`candidate run` / `dataset generate`), events are printed as they arrive:
+
+```text
+stream-event {"kind":"plugin_stream","command":"candidate_run","event":{...}}
+```
+
+### Candidate run async example
+
+```bash
+gepa-runner candidate run \
+  --script ./candidate-plugin.js \
+  --config ./candidate-config.yaml \
+  --input-file ./candidate-input.json \
+  --stream \
+  --output-format json
+```
+
+### Dataset generate async example
+
+```bash
+gepa-runner dataset generate \
+  --script ./dataset-plugin.js \
+  --config ./dataset-config.yaml \
+  --stream \
+  --dry-run
+```
+
+See built-in Glazed help pages for full examples and troubleshooting:
+
+- `gepa-runner help gepa-runner-async-plugin-contract`
+- `gepa-runner help gepa-runner-candidate-run-streaming-example`
+- `gepa-runner help gepa-runner-dataset-generate-streaming-example`
+
 ## Merge return decoding rules
 
 `merge(...)` can return:
