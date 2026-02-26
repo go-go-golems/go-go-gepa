@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"bufio"
@@ -9,20 +9,22 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
-	gepaGeneratedDatasetsTable    = "gepa_generated_datasets"
-	gepaGeneratedDatasetRowsTable = "gepa_generated_dataset_rows"
+	GeneratedDatasetsTable    = "gepa_generated_datasets"
+	GeneratedDatasetRowsTable = "gepa_generated_dataset_rows"
 )
 
-type generatedDatasetRow struct {
+type Row struct {
 	RowIndex int
 	Row      map[string]any
 	Metadata map[string]any
 }
 
-type generatedDatasetRecord struct {
+type Record struct {
 	DatasetID                string
 	Name                     string
 	RequestedCount           int
@@ -36,7 +38,7 @@ type generatedDatasetRecord struct {
 	CreatedAtMS              int64
 }
 
-type generatedDatasetWriteResult struct {
+type WriteResult struct {
 	DatasetID      string
 	RowsWritten    int
 	OutputJSONL    string
@@ -44,12 +46,12 @@ type generatedDatasetWriteResult struct {
 	DBPath         string
 }
 
-func writeGeneratedDatasetFiles(outputDir, outputFileStem string, record generatedDatasetRecord, rows []generatedDatasetRow) (generatedDatasetWriteResult, error) {
+func WriteFiles(outputDir, outputFileStem string, record Record, rows []Row) (WriteResult, error) {
 	if strings.TrimSpace(outputDir) == "" {
-		return generatedDatasetWriteResult{}, fmt.Errorf("output dir is empty")
+		return WriteResult{}, fmt.Errorf("output dir is empty")
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	stem := strings.TrimSpace(outputFileStem)
 	if stem == "" {
@@ -60,26 +62,27 @@ func writeGeneratedDatasetFiles(outputDir, outputFileStem string, record generat
 
 	f, err := os.Create(jsonlPath)
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	defer func() {
 		_ = f.Close()
 	}()
+
 	w := bufio.NewWriter(f)
 	for _, row := range rows {
 		blob, err := json.Marshal(row.Row)
 		if err != nil {
-			return generatedDatasetWriteResult{}, err
+			return WriteResult{}, err
 		}
 		if _, err := w.Write(blob); err != nil {
-			return generatedDatasetWriteResult{}, err
+			return WriteResult{}, err
 		}
 		if err := w.WriteByte('\n'); err != nil {
-			return generatedDatasetWriteResult{}, err
+			return WriteResult{}, err
 		}
 	}
 	if err := w.Flush(); err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 
 	meta := map[string]any{
@@ -97,13 +100,13 @@ func writeGeneratedDatasetFiles(outputDir, outputFileStem string, record generat
 	}
 	metaBlob, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	if err := os.WriteFile(metaPath, metaBlob, 0o644); err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 
-	return generatedDatasetWriteResult{
+	return WriteResult{
 		DatasetID:      record.DatasetID,
 		RowsWritten:    len(rows),
 		OutputJSONL:    jsonlPath,
@@ -111,30 +114,30 @@ func writeGeneratedDatasetFiles(outputDir, outputFileStem string, record generat
 	}, nil
 }
 
-func writeGeneratedDatasetToSQLite(dbPath string, record generatedDatasetRecord, rows []generatedDatasetRow) (generatedDatasetWriteResult, error) {
+func WriteSQLite(dbPath string, record Record, rows []Row) (WriteResult, error) {
 	dbPath = strings.TrimSpace(dbPath)
 	if dbPath == "" {
-		return generatedDatasetWriteResult{}, fmt.Errorf("output db is empty")
+		return WriteResult{}, fmt.Errorf("output db is empty")
 	}
 	if err := ensureParentDir(dbPath); err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	defer func() {
 		_ = db.Close()
 	}()
 
-	if err := ensureGeneratedDatasetTables(db); err != nil {
-		return generatedDatasetWriteResult{}, err
+	if err := ensureTables(db); err != nil {
+		return WriteResult{}, err
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	defer func() {
 		_ = tx.Rollback()
@@ -167,7 +170,7 @@ INSERT INTO gepa_generated_datasets (
 		record.CreatedAtMS,
 	)
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 
 	rowStmt, err := tx.Prepare(`
@@ -178,7 +181,7 @@ INSERT INTO gepa_generated_dataset_rows (
   metadata_json
 ) VALUES (?, ?, ?, ?)`)
 	if err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 	defer func() {
 		_ = rowStmt.Close()
@@ -187,32 +190,32 @@ INSERT INTO gepa_generated_dataset_rows (
 	for _, row := range rows {
 		rowJSON, err := json.Marshal(row.Row)
 		if err != nil {
-			return generatedDatasetWriteResult{}, err
+			return WriteResult{}, err
 		}
 		var metadataJSON []byte
 		if row.Metadata != nil {
 			metadataJSON, err = json.Marshal(row.Metadata)
 			if err != nil {
-				return generatedDatasetWriteResult{}, err
+				return WriteResult{}, err
 			}
 		}
 		if _, err := rowStmt.Exec(record.DatasetID, row.RowIndex, string(rowJSON), nullableString(string(metadataJSON))); err != nil {
-			return generatedDatasetWriteResult{}, err
+			return WriteResult{}, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return generatedDatasetWriteResult{}, err
+		return WriteResult{}, err
 	}
 
-	return generatedDatasetWriteResult{
+	return WriteResult{
 		DatasetID:   record.DatasetID,
 		RowsWritten: len(rows),
 		DBPath:      dbPath,
 	}, nil
 }
 
-func ensureGeneratedDatasetTables(db *sql.DB) error {
+func ensureTables(db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("generated dataset recorder: db is nil")
 	}
@@ -246,4 +249,19 @@ func ensureGeneratedDatasetTables(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func ensureParentDir(path string) error {
+	parent := filepath.Dir(path)
+	if parent == "" || parent == "." {
+		return nil
+	}
+	return os.MkdirAll(parent, 0o755)
+}
+
+func nullableString(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
 }

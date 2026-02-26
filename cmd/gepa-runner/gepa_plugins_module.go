@@ -6,10 +6,11 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/require"
+	datasetgen "github.com/go-go-golems/go-go-gepa/pkg/dataset/generator"
 )
 
 const gepaPluginsModuleName = "gepa/plugins"
-const datasetGeneratorPluginAPIVersion = "gepa.dataset-generator/v1"
+const datasetGeneratorPluginAPIVersion = datasetgen.PluginAPIVersion
 
 func registerGepaPluginsModule(reg *require.Registry) {
 	if reg == nil {

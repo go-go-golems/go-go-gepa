@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	datasetgen "github.com/go-go-golems/go-go-gepa/pkg/dataset/generator"
 )
 
 func TestLoadDatasetGenerateConfigValid(t *testing.T) {
@@ -30,11 +32,11 @@ validation:
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, raw, err := loadDatasetGenerateConfig(path)
+	cfg, raw, err := datasetgen.LoadConfig(path)
 	if err != nil {
-		t.Fatalf("loadDatasetGenerateConfig failed: %v", err)
+		t.Fatalf("LoadConfig failed: %v", err)
 	}
-	if cfg.APIVersion != datasetGenerateConfigAPIVersion {
+	if cfg.APIVersion != datasetgen.ConfigAPIVersion {
 		t.Fatalf("unexpected apiVersion: %q", cfg.APIVersion)
 	}
 	if cfg.Count != 3 {
@@ -58,7 +60,7 @@ script: ./scripts/generator.js
 	if err := os.WriteFile(path, []byte(blob), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	_, _, err := loadDatasetGenerateConfig(path)
+	_, _, err := datasetgen.LoadConfig(path)
 	if err == nil {
 		t.Fatalf("expected error for forbidden script key")
 	}
@@ -78,7 +80,7 @@ output:
 	if err := os.WriteFile(path, []byte(blob), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	_, _, err := loadDatasetGenerateConfig(path)
+	_, _, err := datasetgen.LoadConfig(path)
 	if err == nil {
 		t.Fatalf("expected error for forbidden output key")
 	}

@@ -1,0 +1,13 @@
+{
+  "configApiVersion": "gepa.dataset-generate/v2",
+  "createdAt": "2026-02-26T18:39:11Z",
+  "createdAtMs": 1772131151151,
+  "datasetId": "gepa-dataset-1772131151151995265",
+  "generatedCount": 1,
+  "name": "arithmetic-smoke-gpt5nano",
+  "pluginId": "examples.arithmetic",
+  "pluginName": "Arithmetic Dataset Generator",
+  "pluginRegistryIdentifier": "local.examples",
+  "requestedCount": 1,
+  "seed": 1772131151151710140
+}

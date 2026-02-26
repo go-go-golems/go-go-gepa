@@ -666,3 +666,241 @@ gofmt -w cmd/gepa-runner/*.go cmd/gepa-runner/*_test.go
 go test ./cmd/gepa-runner -count=1
 go run ./cmd/gepa-runner dataset generate --help
 ```
+
+## Phase 11: Runtime Validation with `gpt-5-nano` Profile (2026-02-26)
+
+This phase validates the newly implemented `dataset generate` command by running it multiple times with profile selection set to `gpt-5-nano`, while keeping all temporary configs/scripts/logs under the ticket-local `scripts/` folder for reproducibility.
+
+The first execution attempt exposed profile-registry configuration friction in the local environment. I fixed that by adding a ticket-local runtime registry YAML source and making the experiment script self-contained.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+```text
+Make sure to run it a couple of times with pinocchio profile gpt-5-nano.
+```
+
+**User prompt (verbatim):**
+```text
+Store all scripts and temp document configs and such in the ticket's scirpts/ folder so I can track you steps. Keep a frequent diary.
+```
+
+**User prompt (verbatim):**
+```text
+you can use --print-parsed-fields
+```
+
+**Assistant interpretation:** Run `dataset generate` multiple times using `--profile gpt-5-nano`, keep every experiment artifact in the ticket `scripts/` directory, and capture profile-resolution evidence using `--print-parsed-fields`.
+
+**Inferred user intent:** Ensure implementation is exercised under realistic profile selection and fully traceable from ticket-local artifacts.
+
+### What I did
+
+1. Added ticket-local experiment assets in:
+   - `scripts/exp-07-dataset-generate-gpt5nano.yaml`
+   - `scripts/exp-07-profile-registry-gpt5nano.yaml`
+   - `scripts/exp-07-run-dataset-generate-gpt5nano.sh`
+2. Executed two `dataset generate` runs with `--profile gpt-5-nano`:
+   - run 1: `--count 3`
+   - run 2: `--count 5`
+3. Captured outputs and DB checks in ticket-local files:
+   - `exp-07-run-1.txt`
+   - `exp-07-run-2.txt`
+   - `exp-07-generated.sqlite`
+   - `exp-07-sql-summary.txt`
+   - output dirs `exp-07-out-1/` and `exp-07-out-2/`
+4. Added a `--print-parsed-fields` evidence capture:
+   - raw (sanitized): `exp-07-print-parsed-fields.txt`
+   - focused summary: `exp-07-print-parsed-fields-summary.txt`
+
+### Why
+
+1. Confirms runtime behavior, not just unit tests.
+2. Confirms profile selection path for `gpt-5-nano` in this command surface.
+3. Provides reproducible artifacts for later review without relying on terminal memory.
+
+### What worked
+
+1. Both generation runs completed successfully with profile set to `gpt-5-nano`.
+2. SQLite summary confirms 2 generated datasets and 8 generated rows (3 + 5).
+3. Parsed-fields output confirms profile-driven values resolve from the ticket-local registry:
+   - `ai-api-type: openai-responses`
+   - `ai-engine: gpt-5-nano`
+   - `ai-max-response-tokens: 128000`
+
+### What didn't work
+
+1. Initial run failed against default local profile file with:
+   - `validation error (registry): runtime YAML must be a single registry document (legacy profile-map format is not supported)`.
+2. Attempt to use `--profile-registries` failed because this CLI surface does not expose that flag:
+   - `Error: unknown flag: --profile-registries`.
+3. Resolution:
+   - used `PINOCCHIO_PROFILE_REGISTRIES=<ticket-local-runtime-registry.yaml>` in the experiment script.
+
+### What I learned
+
+1. At this stage of investigation, profile registry source had to be injected through env (`PINOCCHIO_PROFILE_REGISTRIES`) because `--profile-registries` was not yet wired for this command.
+2. `--print-parsed-fields` is useful for proving profile resolution, but output needs sanitization before archival because it can include unrelated credential fields.
+
+### What was tricky to build
+
+The command itself does not need live model calls for this generator script, but profile middleware still validates registry-source format up front. That means profile source correctness is a hard precondition even for local-only generation logic.
+
+### What warrants a second pair of eyes
+
+1. Whether `dataset generate` should explicitly expose `--profile-registries` for parity with other binaries.
+2. Whether parsed-fields output should support built-in redaction mode for API-key fields.
+
+### What should be done in the future
+
+1. Add integration test fixture that passes `--profile-registries` with a ticket-local runtime registry and runs `dataset generate` end-to-end.
+2. Continue with `candidate run` implementation and parallel runtime validation pattern.
+
+### Code review instructions
+
+1. Review run script and config artifacts:
+   - `scripts/exp-07-run-dataset-generate-gpt5nano.sh`
+   - `scripts/exp-07-dataset-generate-gpt5nano.yaml`
+   - `scripts/exp-07-profile-registry-gpt5nano.yaml`
+2. Inspect run outputs:
+   - `scripts/exp-07-run-1.txt`
+   - `scripts/exp-07-run-2.txt`
+   - `scripts/exp-07-sql-summary.txt`
+3. Inspect profile-resolution evidence:
+   - `scripts/exp-07-print-parsed-fields-summary.txt`
+
+### Technical details
+
+Key commands used:
+
+```bash
+./ttmp/.../scripts/exp-07-run-dataset-generate-gpt5nano.sh
+
+go run ./cmd/gepa-runner dataset generate \
+  --profile gpt-5-nano \
+  --profile-registries ./ttmp/.../scripts/exp-07-profile-registry-gpt5nano.yaml \
+  --script ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js \
+  --config ./ttmp/.../scripts/exp-07-dataset-generate-gpt5nano.yaml \
+  --count 2 \
+  --output-dir ./ttmp/.../scripts/exp-07-out-print \
+  --output-db ./ttmp/.../scripts/exp-07-generated.sqlite \
+  --print-parsed-fields > ./ttmp/.../scripts/exp-07-print-parsed-fields.txt 2>&1
+```
+
+## Phase 12: Align Runner Profile/Registry Handling with Pinocchio (2026-02-26)
+
+After reviewing pinocchio profile wiring, I aligned `go-go-gepa` command construction so registry handling follows the same geppetto middleware model instead of the legacy profile helper section.
+
+This removed the need for env-only workarounds and made `--profile-registries` available on `dataset generate` directly.
+
+### What I did
+
+1. Compared pinocchio and gepa-runner wiring:
+   - pinocchio relies on geppetto profile-settings + middleware stack parsing.
+   - gepa-runner was adding `cli.WithProfileSettingsSection()` (legacy `profile-file`) on top of geppetto sections.
+2. Updated gepa-runner:
+   - removed `cli.WithProfileSettingsSection()` from optimize/eval/dataset command builds,
+   - validated direct `--profile-registries` handling from parsed profile settings.
+3. Revalidated:
+   - tests: `go test ./cmd/gepa-runner -count=1` passed.
+   - help now includes `--profile-registries`.
+4. Added experiment `exp-08` showing direct flag usage works:
+   - ran `dataset generate` with `--profile gpt-5-nano --profile-registries <ticket-registry>`,
+   - persisted output and sqlite summary under ticket `scripts/`.
+
+### What worked
+
+1. `dataset generate --help` now surfaces `--profile-registries`.
+2. Direct flag run succeeded and wrote output + sqlite rows (`exp-08-*` artifacts).
+
+### Artifacts
+
+1. `scripts/exp-08-run.txt`
+2. `scripts/exp-08-generated.sqlite`
+3. `scripts/exp-08-sql-summary.txt`
+4. `scripts/exp-08-out/`
+
+## Phase 13: Remove `os.Getenv` Coupling from Runner Profile Flow (2026-02-26)
+
+Applied the explicit requirement to remove `os.Getenv` usage from `go-go-gepa` runner wiring and keep profile/registry resolution fully flag + parsed-layer driven.
+
+### What I changed
+
+1. Finalized removal of env-propagation helper from runner commands:
+   - no env mirroring in optimize/eval/dataset command execution paths,
+   - no `os.Getenv(...)` references in `go-go-gepa` sources.
+2. Updated experiment script to be flag-driven:
+   - `scripts/exp-07-run-dataset-generate-gpt5nano.sh` now passes `--profile-registries "$REGISTRY"` instead of exporting `PINOCCHIO_PROFILE_REGISTRIES`.
+
+### Validation
+
+1. Verified zero `os.Getenv(` hits in `go-go-gepa`:
+
+```bash
+rg -n "os\.Getenv\(" -S /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa
+```
+
+2. Re-ran command package tests:
+
+```bash
+go test ./cmd/gepa-runner -count=1
+```
+
+### Outcome
+
+Runner behavior is now explicit and deterministic from CLI/config inputs only; no env fallback path remains in `go-go-gepa` for profile propagation.
+
+## Phase 14: Extract Dataset Generation Stack into Reusable `pkg/` Component (2026-02-26)
+
+Moved dataset generation implementation (config parsing, plugin loading, row generation loop, storage writes, and orchestration) out of `cmd/gepa-runner` into `pkg/dataset/generator` so other binaries can reuse the same behavior without copying command internals.
+
+### What I changed
+
+1. Added new reusable package:
+   - `pkg/dataset/generator/config.go`
+   - `pkg/dataset/generator/plugin_loader.go`
+   - `pkg/dataset/generator/generation.go`
+   - `pkg/dataset/generator/store.go`
+   - `pkg/dataset/generator/run.go`
+2. Rewired command layer to thin adapter:
+   - `cmd/gepa-runner/dataset_generate_command.go` now parses CLI/profile layers, creates JS runtime, and calls `datasetgen.RunWithRuntime(...)`.
+3. Removed cmd-local duplicated implementation files:
+   - `cmd/gepa-runner/dataset_generate_config.go`
+   - `cmd/gepa-runner/dataset_generate_store.go`
+   - `cmd/gepa-runner/dataset_generator_loader.go`
+4. Kept API-version consistency by referencing package constant in JS module wiring:
+   - `cmd/gepa-runner/gepa_plugins_module.go` now uses `datasetgen.PluginAPIVersion`.
+5. Updated existing command tests to assert behavior through the new package API.
+
+### Validation
+
+1. Unit tests:
+
+```bash
+go test ./cmd/gepa-runner -count=1
+```
+
+2. Runtime smoke with profile + registry flag and ticket-local script/config artifacts:
+
+```bash
+go run ./cmd/gepa-runner dataset generate \
+  --profile gpt-5-nano \
+  --profile-registries ./ttmp/.../scripts/exp-07-profile-registry-gpt5nano.yaml \
+  --script ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js \
+  --config ./ttmp/.../scripts/exp-07-dataset-generate-gpt5nano.yaml \
+  --count 1 \
+  --output-dir ./ttmp/.../scripts/exp-09-out \
+  --output-db ./ttmp/.../scripts/exp-09-generated.sqlite
+```
+
+Run succeeded and wrote JSONL + metadata + sqlite rows.
+
+### Artifacts
+
+1. `scripts/exp-09-out/arithmetic-smoke-gpt5nano.jsonl`
+2. `scripts/exp-09-out/arithmetic-smoke-gpt5nano.metadata.json`
+3. `scripts/exp-09-generated.sqlite`
+
+### What this unlocks
+
+`dataset generate` behavior is now reusable from non-CLI call sites (future tools/commands/services) via a stable `pkg/dataset/generator` API instead of being bound to `cmd/gepa-runner` internals.

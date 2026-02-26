@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	datasetgen "github.com/go-go-golems/go-go-gepa/pkg/dataset/generator"
 )
 
 func TestWriteGeneratedDatasetToSQLite(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "generated.sqlite")
-	record := generatedDatasetRecord{
+	record := datasetgen.Record{
 		DatasetID:                "dataset-1",
 		Name:                     "arith",
 		RequestedCount:           2,
@@ -17,19 +19,19 @@ func TestWriteGeneratedDatasetToSQLite(t *testing.T) {
 		Seed:                     42,
 		PluginID:                 "example.generator",
 		PluginName:               "Example Generator",
-		PluginRegistryIdentifier: defaultPluginRegistryIdentifier,
-		ConfigAPIVersion:         datasetGenerateConfigAPIVersion,
+		PluginRegistryIdentifier: datasetgen.DefaultRegistryIdentifier,
+		ConfigAPIVersion:         datasetgen.ConfigAPIVersion,
 		ConfigJSON:               `{"apiVersion":"gepa.dataset-generate/v2","count":2}`,
 		CreatedAtMS:              123,
 	}
-	rows := []generatedDatasetRow{
+	rows := []datasetgen.Row{
 		{RowIndex: 0, Row: map[string]any{"question": "2+2", "answer": "4"}, Metadata: map[string]any{"difficulty": "easy"}},
 		{RowIndex: 1, Row: map[string]any{"question": "3+3", "answer": "6"}, Metadata: map[string]any{"difficulty": "easy"}},
 	}
 
-	out, err := writeGeneratedDatasetToSQLite(dbPath, record, rows)
+	out, err := datasetgen.WriteSQLite(dbPath, record, rows)
 	if err != nil {
-		t.Fatalf("writeGeneratedDatasetToSQLite failed: %v", err)
+		t.Fatalf("WriteSQLite failed: %v", err)
 	}
 	if out.RowsWritten != 2 {
 		t.Fatalf("expected 2 rows written, got %d", out.RowsWritten)
@@ -44,7 +46,7 @@ func TestWriteGeneratedDatasetToSQLite(t *testing.T) {
 	}()
 
 	var datasetCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM gepa_generated_datasets`).Scan(&datasetCount); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + datasetgen.GeneratedDatasetsTable).Scan(&datasetCount); err != nil {
 		t.Fatalf("count dataset rows: %v", err)
 	}
 	if datasetCount != 1 {
@@ -52,7 +54,7 @@ func TestWriteGeneratedDatasetToSQLite(t *testing.T) {
 	}
 
 	var rowCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM gepa_generated_dataset_rows`).Scan(&rowCount); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + datasetgen.GeneratedDatasetRowsTable).Scan(&rowCount); err != nil {
 		t.Fatalf("count dataset row rows: %v", err)
 	}
 	if rowCount != 2 {
@@ -62,7 +64,7 @@ func TestWriteGeneratedDatasetToSQLite(t *testing.T) {
 
 func TestWriteGeneratedDatasetFiles(t *testing.T) {
 	outputDir := t.TempDir()
-	record := generatedDatasetRecord{
+	record := datasetgen.Record{
 		DatasetID:                "dataset-2",
 		Name:                     "arith",
 		RequestedCount:           1,
@@ -70,17 +72,17 @@ func TestWriteGeneratedDatasetFiles(t *testing.T) {
 		Seed:                     42,
 		PluginID:                 "example.generator",
 		PluginName:               "Example Generator",
-		PluginRegistryIdentifier: defaultPluginRegistryIdentifier,
-		ConfigAPIVersion:         datasetGenerateConfigAPIVersion,
+		PluginRegistryIdentifier: datasetgen.DefaultRegistryIdentifier,
+		ConfigAPIVersion:         datasetgen.ConfigAPIVersion,
 		CreatedAtMS:              123,
 	}
-	rows := []generatedDatasetRow{
+	rows := []datasetgen.Row{
 		{RowIndex: 0, Row: map[string]any{"question": "2+2", "answer": "4"}, Metadata: map[string]any{"difficulty": "easy"}},
 	}
 
-	out, err := writeGeneratedDatasetFiles(outputDir, "generated", record, rows)
+	out, err := datasetgen.WriteFiles(outputDir, "generated", record, rows)
 	if err != nil {
-		t.Fatalf("writeGeneratedDatasetFiles failed: %v", err)
+		t.Fatalf("WriteFiles failed: %v", err)
 	}
 	if out.OutputJSONL == "" || out.OutputMetadata == "" {
 		t.Fatalf("expected non-empty output paths: %#v", out)

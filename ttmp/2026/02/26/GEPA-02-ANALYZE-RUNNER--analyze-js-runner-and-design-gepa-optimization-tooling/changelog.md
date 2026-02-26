@@ -119,3 +119,106 @@ Implemented the first GEPA-02 building block in code: `dataset generate`.
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/dataset_generator_loader.go
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/gepa_plugins_module.go
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go
+
+## 2026-02-26
+
+Ran runtime validation for `dataset generate` with `--profile gpt-5-nano` multiple times and stored all experiment artifacts in ticket-local `scripts/`.
+
+### Validation details
+
+- Added ticket-local runtime registry source (`exp-07-profile-registry-gpt5nano.yaml`) to avoid legacy profile-map format failures.
+- Ran generation twice (`count=3` and `count=5`) and verified sqlite persistence.
+- Captured parsed profile resolution via `--print-parsed-fields` and stored a sanitized summary.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-run-dataset-generate-gpt5nano.sh
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-dataset-generate-gpt5nano.yaml
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-profile-registry-gpt5nano.yaml
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-run-1.txt
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-run-2.txt
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-sql-summary.txt
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-print-parsed-fields-summary.txt
+
+## 2026-02-26
+
+Aligned `gepa-runner` profile/registry behavior with pinocchio/geppetto middleware patterns.
+
+### What changed
+
+- Removed legacy profile section injection from command build wiring (`cli.WithProfileSettingsSection()`), allowing geppetto profile-settings to remain authoritative.
+- Added direct `--profile-registries` support for command usage; env-propagation helper work was later removed in the same day cleanup.
+- Verified `dataset generate` now exposes and accepts `--profile-registries`.
+- Added `exp-08` runtime evidence using direct `--profile-registries` flag with `--profile gpt-5-nano`.
+
+### Validation
+
+- `go test ./cmd/gepa-runner -count=1` passed.
+- `go run ./cmd/gepa-runner dataset generate --help` includes `--profile-registries`.
+- `exp-08` run completed successfully with generated output + sqlite row.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/profile_helpers.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-08-run.txt
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-08-sql-summary.txt
+
+## 2026-02-26
+
+Removed remaining `os.Getenv` coupling from `go-go-gepa` runner flow and switched experiment usage to CLI flags.
+
+### What changed
+
+- Ensured no `os.Getenv(...)` usage remains in `go-go-gepa` runner sources.
+- Kept profile/registry handling parsed-layer driven (`--profile`, `--profile-registries`) with no env propagation helper.
+- Updated `exp-07` dataset-generation script to pass `--profile-registries` directly instead of exporting `PINOCCHIO_PROFILE_REGISTRIES`.
+
+### Validation
+
+- `rg -n "os\.Getenv\(" -S /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa` returned no matches.
+- `go test ./cmd/gepa-runner -count=1` passed.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-run-dataset-generate-gpt5nano.sh
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/main.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/eval_command.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/dataset_generate_command.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/profile_helpers.go
+
+## 2026-02-26
+
+Extracted dataset-generation internals from `cmd/gepa-runner` into reusable library code under `pkg/dataset/generator`.
+
+### What changed
+
+- Added reusable dataset-generation package APIs:
+  - config loading + resolution,
+  - dataset-generator plugin loader,
+  - deterministic row generation loop + validation/retry handling,
+  - JSONL/metadata/sqlite persistence,
+  - end-to-end orchestration entrypoint (`RunWithRuntime`).
+- Simplified command implementation:
+  - `dataset generate` command now acts as CLI adapter and delegates execution to package layer.
+- Removed now-redundant cmd-local implementation files:
+  - `dataset_generate_config.go`,
+  - `dataset_generate_store.go`,
+  - `dataset_generator_loader.go`.
+- Aligned plugin API-version constant usage:
+  - `gepa/plugins` module now references `datasetgen.PluginAPIVersion`.
+
+### Validation
+
+- `go test ./cmd/gepa-runner -count=1` passed.
+- Runtime smoke test of `dataset generate` succeeded and wrote outputs in `scripts/exp-09-*`.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/config.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/plugin_loader.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/generation.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/store.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/dataset/generator/run.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/dataset_generate_command.go
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/cmd/gepa-runner/gepa_plugins_module.go

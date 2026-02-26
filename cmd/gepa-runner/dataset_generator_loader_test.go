@@ -5,7 +5,43 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	datasetgen "github.com/go-go-golems/go-go-gepa/pkg/dataset/generator"
 )
+
+type loaderTestRNG struct {
+	rng *rand.Rand
+}
+
+func (r *loaderTestRNG) IntN(max int) int {
+	if r == nil || r.rng == nil || max <= 0 {
+		return 0
+	}
+	return r.rng.Intn(max)
+}
+
+func (r *loaderTestRNG) Float64() float64 {
+	if r == nil || r.rng == nil {
+		return 0
+	}
+	return r.rng.Float64()
+}
+
+func (r *loaderTestRNG) Choice(values []any) any {
+	if r == nil || r.rng == nil || len(values) == 0 {
+		return nil
+	}
+	return values[r.rng.Intn(len(values))]
+}
+
+func (r *loaderTestRNG) Shuffle(values []any) {
+	if r == nil || r.rng == nil || len(values) < 2 {
+		return
+	}
+	r.rng.Shuffle(len(values), func(i, j int) {
+		values[i], values[j] = values[j], values[i]
+	})
+}
 
 func TestLoadDatasetGeneratorPluginAndGenerateOne(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -50,19 +86,19 @@ module.exports = defineDatasetGenerator({
 	hostContext := map[string]any{
 		"app": "test",
 	}
-	plugin, meta, err := loadDatasetGeneratorPlugin(rt, scriptPath, hostContext)
+	plugin, meta, err := datasetgen.LoadPlugin(rt.vm, rt.reqMod, scriptPath, hostContext)
 	if err != nil {
-		t.Fatalf("loadDatasetGeneratorPlugin failed: %v", err)
+		t.Fatalf("LoadPlugin failed: %v", err)
 	}
-	if meta.RegistryIdentifier != defaultPluginRegistryIdentifier {
-		t.Fatalf("expected default registry identifier %q, got %q", defaultPluginRegistryIdentifier, meta.RegistryIdentifier)
+	if meta.RegistryIdentifier != datasetgen.DefaultRegistryIdentifier {
+		t.Fatalf("expected default registry identifier %q, got %q", datasetgen.DefaultRegistryIdentifier, meta.RegistryIdentifier)
 	}
-	if got, _ := hostContext["pluginRegistryIdentifier"].(string); got != defaultPluginRegistryIdentifier {
+	if got, _ := hostContext["pluginRegistryIdentifier"].(string); got != datasetgen.DefaultRegistryIdentifier {
 		t.Fatalf("host context missing pluginRegistryIdentifier: %q", got)
 	}
 
-	rng := &jsRNG{rng: rand.New(rand.NewSource(42))}
-	row, metadata, err := plugin.GenerateOne(map[string]any{"index": 0}, datasetGeneratorGenerateOptions{
+	rng := &loaderTestRNG{rng: rand.New(rand.NewSource(42))}
+	row, metadata, err := plugin.GenerateOne(map[string]any{"index": 0}, datasetgen.PluginGenerateOptions{
 		Seed: 42,
 		RNG:  rng,
 	})
@@ -72,7 +108,7 @@ module.exports = defineDatasetGenerator({
 	if row["index"] != int64(0) && row["index"] != 0 {
 		t.Fatalf("unexpected index value: %#v", row["index"])
 	}
-	if row["registry"] != defaultPluginRegistryIdentifier {
+	if row["registry"] != datasetgen.DefaultRegistryIdentifier {
 		t.Fatalf("unexpected registry value: %#v", row["registry"])
 	}
 	if metadata["seed"] != int64(42) && metadata["seed"] != float64(42) {
