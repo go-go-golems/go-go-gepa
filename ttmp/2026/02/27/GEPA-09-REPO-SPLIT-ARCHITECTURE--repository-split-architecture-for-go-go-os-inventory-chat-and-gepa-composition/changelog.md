@@ -78,3 +78,22 @@ Implemented B1/B2 backend extraction tasks:
 ### Notes
 
 - Pre-work on B3 found no currently exported reusable GEPA backend module package in `go-go-gepa`; documented as blocker/options in diary.
+
+## 2026-02-27
+
+Resolved B3 by extracting GEPA backend core into `go-go-gepa` and switching `wesen-os` to adapter mode.
+
+### Commits produced
+
+- `go-go-gepa@21635cc` — `feat: extract gepa backend module package for os adapters`
+- `wesen-os@4d4a61c` — `refactor: adapt wesen-os gepa module to go-go-gepa backend package`
+
+### Validation
+
+- `cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule` passed
+- `cd wesen-os && GOWORK=off go test ./...` passed
+
+### Notes
+
+- `wesen-os/pkg/gepa` now contains adapter-only host integration code.
+- GEPA backend behavior/tests live in `go-go-gepa/pkg/backendmodule`.

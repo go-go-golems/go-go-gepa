@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T17:40:00-05:00
+LastUpdated: 2026-02-27T18:05:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -507,3 +507,47 @@ Implication:
 - B3 requires either:
   1. new exported module package in `go-go-gepa`, or
   2. continuing with transitional copied GEPA backend in `wesen-os` until that package exists.
+
+## Phase 14: B3 implementation (GEPA adapter extraction completed)
+
+The Phase 13 blocker was resolved in this run by extracting the GEPA backend core from `wesen-os` into `go-go-gepa`, then keeping `wesen-os` on a thin host adapter.
+
+### Move and extraction details
+
+`mv` operation:
+
+```bash
+mv wesen-os/pkg/gepa/* go-go-gepa/pkg/backendmodule/
+```
+
+Refactor in `go-go-gepa`:
+
+1. Created `pkg/backendmodule` as an exported package for composition hosts.
+2. Converted package to host-agnostic contracts:
+   - added `Manifest` and reflection contract types in `contracts.go`
+   - removed import dependency on `wesen-os/pkg/backendhost`
+3. Preserved runtime/catalog/run-service behavior and tests in extracted package.
+
+Refactor in `wesen-os`:
+
+1. Replaced old in-tree GEPA implementation with adapter module (`pkg/gepa/module.go`).
+2. Adapter maps `go-go-gepa/pkg/backendmodule` contracts to `wesen-os/pkg/backendhost` contracts.
+3. Launcher API usage remained stable (`NewModule`, `ModuleConfig`).
+
+### Commits
+
+- `go-go-gepa@21635cc` - `feat: extract gepa backend module package for os adapters`
+- `wesen-os@4d4a61c` - `refactor: adapt wesen-os gepa module to go-go-gepa backend package`
+
+### Validation
+
+Commands:
+
+```bash
+cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule
+cd wesen-os && GOWORK=off go test ./...
+```
+
+Result:
+
+- both pass.
