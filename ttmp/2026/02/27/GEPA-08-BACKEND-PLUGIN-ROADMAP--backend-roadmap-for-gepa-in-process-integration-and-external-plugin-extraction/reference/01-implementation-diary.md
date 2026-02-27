@@ -45,7 +45,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T13:30:00-05:00
+LastUpdated: 2026-02-27T13:42:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -425,6 +425,47 @@ Commit:
 - Reflection payload for GEPA is discoverable from `/api/os/apps` and `/api/os/apps/gepa/reflection`.
 - Script list/start/get/cancel/schema routes are implemented with in-memory placeholder runtime behavior.
 - SSE/timeline routes and real `go-go-gepa` runtime execution are not implemented yet.
+
+## Step 12: Runtime guardrails (timeout + concurrency) and new launcher flags
+
+To advance the task list beyond scaffolding, I implemented two runtime control features in the in-memory GEPA run manager:
+
+- timeout guard (`failed` with `"run timed out"`),
+- max-concurrency guard (`429 Too Many Requests` when the limit is reached).
+
+### Files changed
+
+- `go-go-os/go-inventory-chat/internal/gepa/run_service.go`
+- `go-go-os/go-inventory-chat/internal/gepa/module.go`
+- `go-go-os/go-inventory-chat/internal/gepa/module_test.go`
+- `go-go-os/go-inventory-chat/cmd/go-go-os-launcher/main.go`
+- `go-go-os/go-inventory-chat/cmd/go-go-os-launcher/main_integration_test.go`
+- `go-go-os/go-inventory-chat/README.md`
+
+### Behavior changes
+
+- Added config knobs:
+  - `RunTimeout` and `MaxConcurrentRuns` in `gepa.ModuleConfig`.
+- Exposed launcher flags:
+  - `--gepa-run-timeout-seconds` (default `30`),
+  - `--gepa-max-concurrent-runs` (default `4`).
+- Run manager now:
+  - fails running runs on timeout,
+  - returns concurrency-limit error when running count hits cap.
+- HTTP handler maps concurrency-limit error to:
+  - `429 Too Many Requests`.
+
+### Validation commands
+
+```bash
+cd go-go-os/go-inventory-chat
+GOWORK=off go test ./internal/gepa ./internal/backendhost -count=1
+GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(OSAppsEndpoint_ListsGEPAModuleReflectionMetadata|GEPAModule_ReflectionAndScriptsEndpoints)$' -count=1
+```
+
+### Commit
+
+- `dbe2d60` — `gepa: enforce run timeout and concurrency limits`
 
 ## Quick reference
 

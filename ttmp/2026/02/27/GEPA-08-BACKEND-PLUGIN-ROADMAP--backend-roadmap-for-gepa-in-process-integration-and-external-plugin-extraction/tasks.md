@@ -43,8 +43,8 @@
 - [x] Add script discovery/catalog component with deterministic IDs.
 - [x] Add run manager with state machine (`queued/running/completed/failed/canceled`).
 - [x] Add cancellation context wiring per run.
-- [ ] Add run timeout guard support.
-- [ ] Add controlled concurrency limits (`max concurrent runs`).
+- [x] Add run timeout guard support.
+- [x] Add controlled concurrency limits (`max concurrent runs`).
 
 ### D. Event and timeline pipeline
 

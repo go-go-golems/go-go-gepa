@@ -28,6 +28,11 @@
   - module registration in launcher registry,
   - launcher integration tests for GEPA manifest/reflection/routes (`commit 9231cb8`).
 - Added launcher README documentation for GEPA routes, config flag, and curl runbook (`commit 7d1c9e7`).
+- Added GEPA run-control guardrails:
+  - timeout-based run failure handling,
+  - max-concurrent-run enforcement with `429` on limit breach,
+  - launcher flags `--gepa-run-timeout-seconds` and `--gepa-max-concurrent-runs`,
+  - additional unit/integration coverage (`commit dbe2d60`).
 
 ## 2026-02-26
 
