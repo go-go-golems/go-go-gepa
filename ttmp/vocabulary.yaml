@@ -77,6 +77,26 @@ topics:
       description: Prompt optimization algorithms and plugin interfaces
     - slug: plugins
       description: JavaScript plugin contracts, registration, and descriptor loading
+    - slug: benchmarking
+      description: Performance benchmarking and comparison tooling
+    - slug: goja
+      description: Goja JavaScript engine integration
+    - slug: optimization
+      description: Optimization algorithms and loop infrastructure
+    - slug: runner
+      description: CLI runner and experiment execution
+    - slug: tooling
+      description: Developer and research tooling
+    - slug: event-streaming
+      description: Streaming of runtime/application events across transport boundaries
+    - slug: js-vm
+      description: JavaScript virtual machine runtime integration topics
+    - slug: sem
+      description: Semantic event model envelopes, translation, and projection
+    - slug: web-frontend
+      description: Browser/frontend event ingestion and rendering concerns
+    - slug: inventory-chat
+      description: Inventory chat domain backend/frontend module architecture and runtime integration.
 docTypes:
     - slug: index
       description: Ticket index
