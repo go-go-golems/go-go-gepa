@@ -56,3 +56,25 @@ Executed backend-only split tasks with commit-by-commit progress across repos an
 
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-09-REPO-SPLIT-ARCHITECTURE--repository-split-architecture-for-go-go-os-inventory-chat-and-gepa-composition/tasks.md
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-09-REPO-SPLIT-ARCHITECTURE--repository-split-architecture-for-go-go-os-inventory-chat-and-gepa-composition/reference/01-research-diary-repo-split-architecture.md
+
+## 2026-02-27
+
+Implemented B1/B2 backend extraction tasks:
+
+- moved inventory backend module implementation out of `wesen-os` and into `go-go-app-inventory` as host-agnostic component API
+- replaced `wesen-os` inventory module with adapter over extracted component
+- added component contract tests (manifest/lifecycle/route guard checks)
+
+### Commits produced
+
+- `go-go-app-inventory@be6865d` — `feat: add host-agnostic inventory backend component API`
+- `wesen-os@b126596` — `refactor: adapt wesen-os inventory module to component API`
+
+### Validation
+
+- `cd go-go-app-inventory && GOWORK=off go test ./...` passed
+- `cd wesen-os && GOWORK=off go test ./...` passed
+
+### Notes
+
+- Pre-work on B3 found no currently exported reusable GEPA backend module package in `go-go-gepa`; documented as blocker/options in diary.

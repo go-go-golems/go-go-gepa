@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T17:26:00-05:00
+LastUpdated: 2026-02-27T17:40:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -439,3 +439,71 @@ Known remaining backend-only gaps:
 1. Formal host-agnostic `Component` interface in `go-go-app-inventory` still needs explicit package boundary.
 2. `wesen-os/pkg/gepa` is still copied/migrated code and not yet replaced by adapter over `go-go-gepa` APIs.
 3. Backend CI/smoke automation for multi-repo composition still pending.
+
+## Phase 13: B1/B2 implementation (component API extraction)
+
+Goal:
+
+- remove direct inventory backend module implementation from `wesen-os`,
+- move it into `go-go-app-inventory` as a host-agnostic component API,
+- keep `wesen-os` on a thin adapter layer.
+
+### Move and refactor details
+
+`mv` operation:
+
+```bash
+mv wesen-os/cmd/wesen-os-launcher/inventory_backend_module.go \
+   go-go-app-inventory/pkg/backendcomponent/component.go
+```
+
+Refactor results in `go-go-app-inventory`:
+
+1. Introduced `pkg/backendcomponent` package with:
+   - `AppManifest` contract
+   - `Component` interface
+   - `Options` struct
+   - `NewInventoryBackendComponent(opts)` constructor
+   - lifecycle and route-mount methods (`Manifest`, `MountRoutes`, `Init`, `Start`, `Stop`, `Health`)
+2. Removed dependency on `wesen-os/pkg/backendhost` from inventory repo.
+3. Added contract tests:
+   - manifest contract assertions
+   - lifecycle server-required guards
+   - mount-route dependency guard checks
+
+Refactor results in `wesen-os`:
+
+1. Replaced inventory module implementation with adapter-only file:
+   - wraps `go-go-app-inventory/pkg/backendcomponent`
+   - maps component manifest to `backendhost.AppBackendManifest`
+   - delegates lifecycle and route methods.
+2. Preserved constant compatibility used by existing integration tests:
+   - `inventoryBackendAppID = inventorycomponent.AppID`
+
+### Commits
+
+- `go-go-app-inventory@be6865d` - `feat: add host-agnostic inventory backend component API`
+- `wesen-os@b126596` - `refactor: adapt wesen-os inventory module to component API`
+
+### Validation
+
+Commands:
+
+```bash
+cd go-go-app-inventory && GOWORK=off go test ./...
+cd wesen-os && GOWORK=off go test ./...
+```
+
+Result:
+
+- both pass.
+
+### Blocker discovered for next task (B3)
+
+Attempted pre-work scan for replacing `wesen-os/pkg/gepa` with a direct adapter over `go-go-gepa` exports showed no reusable backend module package currently exported by `go-go-gepa` (runner-centric `cmd/gepa-runner` code is present, but no app-backend component package yet).
+
+Implication:
+
+- B3 requires either:
+  1. new exported module package in `go-go-gepa`, or
+  2. continuing with transitional copied GEPA backend in `wesen-os` until that package exists.

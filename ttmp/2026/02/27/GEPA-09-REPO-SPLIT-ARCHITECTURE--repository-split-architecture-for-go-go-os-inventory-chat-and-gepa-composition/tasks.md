@@ -31,12 +31,16 @@
 
 ### Pending backend tasks (next commits)
 
-- [ ] B1: Introduce an explicit host-agnostic `Component` API package in `go-go-app-inventory` (instead of direct launcher-level wiring).
-- [ ] B2: Move inventory route/lifecycle/manifest contract tests into `go-go-app-inventory` to harden repo boundary.
+- [x] B1: Introduce an explicit host-agnostic `Component` API package in `go-go-app-inventory` (instead of direct launcher-level wiring).
+  - Evidence: `go-go-app-inventory@be6865d` (`feat: add host-agnostic inventory backend component API`)
+  - Evidence: `wesen-os@b126596` (`refactor: adapt wesen-os inventory module to component API`)
+- [x] B2: Add inventory component manifest/lifecycle/route-contract tests in `go-go-app-inventory` to harden repo boundary.
+  - Evidence: `go-go-app-inventory/pkg/backendcomponent/component_test.go`
 - [ ] B3: Replace copied `wesen-os/pkg/gepa` internals with adapter over `go-go-gepa` exported APIs.
 - [ ] B4: Add explicit dependency/version matrix docs for `wesen-os` consuming `go-go-gepa` and `go-go-app-inventory`.
 - [ ] B5: Add backend smoke pipeline in `wesen-os` CI for `/api/os/apps`, `/api/apps/inventory/*`, and `/api/apps/gepa/*`.
-- [ ] B6: Remove stale empty directories in `go-go-os/go-inventory-chat` and document residual ownership boundary.
+- [x] B6: Remove stale empty directories in `go-go-os/go-inventory-chat` and document residual ownership boundary.
+  - Note: directories were untracked empties and were removed locally; no git diff was produced.
 - [ ] B7: Prepare phase-2 extraction handoff notes (generic external plugin runtime), backend-only scope.
 
 ## Plan Reference
