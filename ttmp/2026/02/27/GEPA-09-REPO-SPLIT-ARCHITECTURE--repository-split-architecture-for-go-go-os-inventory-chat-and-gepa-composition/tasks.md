@@ -86,7 +86,11 @@ Apply follow-up correction:
 ### Tasks
 
 - [x] D1: Add adjustment task board and diary kickoff for this correction round.
-- [ ] D2: Move `pkg/launcherui` back from `go-go-os/go-inventory-chat` to `wesen-os` using `mv`.
-- [ ] D3: Rename module path in `go-go-os/go-inventory-chat/go.mod` to `github.com/go-go-golems/go-go-os`.
-- [ ] D4: Rewire `wesen-os` imports/go.mod replaces to consume `github.com/go-go-golems/go-go-os/pkg/backendhost` while using local `wesen-os/pkg/launcherui`.
-- [ ] D5: Run full validation matrix and update diary/changelog with commit evidence.
+- [x] D2: Move `pkg/launcherui` back from `go-go-os/go-inventory-chat` to `wesen-os` using `mv`.
+  - Evidence: `wesen-os@fee0b19` (`refactor(wesen-os): keep launcherui local and consume go-go-os backendhost`)
+  - Evidence: `go-go-os@5a74c79` (`refactor(go-go-os): rename go module and remove launcherui package`)
+- [x] D3: Rename module path in `go-go-os/go-inventory-chat/go.mod` to `github.com/go-go-golems/go-go-os`.
+  - Evidence: `go-go-os@5a74c79`
+- [x] D4: Rewire `wesen-os` imports/go.mod replaces to consume `github.com/go-go-golems/go-go-os/pkg/backendhost` while using local `wesen-os/pkg/launcherui`.
+  - Evidence: `wesen-os@fee0b19`
+- [x] D5: Run full validation matrix and update diary/changelog with commit evidence.

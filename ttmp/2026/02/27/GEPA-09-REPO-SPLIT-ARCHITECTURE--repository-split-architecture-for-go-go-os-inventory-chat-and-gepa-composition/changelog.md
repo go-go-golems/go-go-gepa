@@ -129,3 +129,17 @@ Started and executed cleanup round to move generic host/mounting web-serving mac
 - `wesen-os`: `GOWORK=off go test ./...` passed
 - `go-go-app-inventory`: `GOWORK=off go test ./...` passed
 - `go-go-gepa/pkg/backendmodule`: `GOWORK=off go test ./pkg/backendmodule` passed
+
+## 2026-02-27
+
+Applied adjustment round:
+
+- kept `launcherui` in `wesen-os` (moved back from `go-go-os/go-inventory-chat`)
+- renamed `go-go-os/go-inventory-chat` module path to `github.com/go-go-golems/go-go-os`
+- rewired `wesen-os` to import `github.com/go-go-golems/go-go-os/pkg/backendhost`
+
+### Commits produced
+
+- `go-go-gepa@8f97a30` — adjustment task board + diary kickoff
+- `go-go-os@5a74c79` — module rename + launcherui removal
+- `wesen-os@fee0b19` — launcherui local + backendhost import/replace rewiring

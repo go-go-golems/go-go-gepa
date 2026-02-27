@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T19:05:00-05:00
+LastUpdated: 2026-02-27T19:15:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -616,6 +616,67 @@ Execution plan:
 2. rename module path in `go-go-os/go-inventory-chat/go.mod`,
 3. rewire `wesen-os` imports and `go.mod` replace/require entries to the new module path,
 4. rerun full validation matrix and log commits.
+
+## Phase 20: adjustment execution (D2-D5)
+
+### D2: move launcherui back to wesen-os
+
+`mv` operation:
+
+```bash
+mv go-go-os/go-inventory-chat/pkg/launcherui wesen-os/pkg/launcherui
+```
+
+Outcome:
+
+- `wesen-os` now owns launcher UI web-serving package again.
+- `go-go-os/go-inventory-chat` no longer ships `pkg/launcherui`.
+
+### D3: rename go-inventory-chat module identity
+
+Changed module path:
+
+- from `github.com/go-go-golems/hypercard-inventory-chat`
+- to `github.com/go-go-golems/go-go-os`
+
+File:
+
+- `go-go-os/go-inventory-chat/go.mod`
+
+### D4: rewire wesen-os imports and module replaces
+
+Import rewires in `wesen-os`:
+
+1. backendhost imports now use:
+   - `github.com/go-go-golems/go-go-os/pkg/backendhost`
+2. launcherui imports now use:
+   - `github.com/go-go-golems/wesen-os/pkg/launcherui`
+
+`go.mod` rewires in `wesen-os`:
+
+1. dropped `hypercard-inventory-chat` require/replace
+2. added replace:
+   - `github.com/go-go-golems/go-go-os => ../go-go-os/go-inventory-chat`
+
+### Commits
+
+- `go-go-os@5a74c79` - `refactor(go-go-os): rename go module and remove launcherui package`
+- `wesen-os@fee0b19` - `refactor(wesen-os): keep launcherui local and consume go-go-os backendhost`
+
+### D5: validation matrix
+
+Commands:
+
+```bash
+cd go-go-os/go-inventory-chat && GOWORK=off go test ./...
+cd wesen-os && GOWORK=off go test ./...
+cd go-go-app-inventory && GOWORK=off go test ./...
+cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule
+```
+
+Result:
+
+- all pass.
 
 ### Blocker discovered for next task (B3)
 
