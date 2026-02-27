@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T18:55:00-05:00
+LastUpdated: 2026-02-27T19:05:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -602,6 +602,20 @@ cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule
 Result:
 
 - all pass.
+
+## Phase 19: adjustment round kickoff
+
+Follow-up direction changed two decisions from the prior cleanup round:
+
+1. `launcherui` should remain in `wesen-os` (composition/frontend bundling repo),
+2. `go-go-os/go-inventory-chat` module identity should be renamed from `hypercard-inventory-chat` to `go-go-os`.
+
+Execution plan:
+
+1. move `launcherui` back into `wesen-os` with `mv`,
+2. rename module path in `go-go-os/go-inventory-chat/go.mod`,
+3. rewire `wesen-os` imports and `go.mod` replace/require entries to the new module path,
+4. rerun full validation matrix and log commits.
 
 ### Blocker discovered for next task (B3)
 

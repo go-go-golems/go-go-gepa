@@ -73,3 +73,20 @@ Move generic module mounting + web-serving host machinery out of `wesen-os` and 
 - [x] C6: Run compile/test validation across `go-go-os/go-inventory-chat`, `wesen-os`, `go-go-app-inventory`, and `go-go-gepa/pkg/backendmodule`.
   - Validation: all target test commands pass.
 - [x] C7: Update diary/changelog with commit-by-commit cleanup log.
+
+## Adjustment Round: Launcher UI In `wesen-os` + Module Rename
+
+### Goal
+
+Apply follow-up correction:
+
+1. keep `launcherui` package in `wesen-os` (frontend bundling/composition responsibility),
+2. rename `go-go-os/go-inventory-chat` Go module path from `hypercard-inventory-chat` to `go-go-os`.
+
+### Tasks
+
+- [x] D1: Add adjustment task board and diary kickoff for this correction round.
+- [ ] D2: Move `pkg/launcherui` back from `go-go-os/go-inventory-chat` to `wesen-os` using `mv`.
+- [ ] D3: Rename module path in `go-go-os/go-inventory-chat/go.mod` to `github.com/go-go-golems/go-go-os`.
+- [ ] D4: Rewire `wesen-os` imports/go.mod replaces to consume `github.com/go-go-golems/go-go-os/pkg/backendhost` while using local `wesen-os/pkg/launcherui`.
+- [ ] D5: Run full validation matrix and update diary/changelog with commit evidence.
