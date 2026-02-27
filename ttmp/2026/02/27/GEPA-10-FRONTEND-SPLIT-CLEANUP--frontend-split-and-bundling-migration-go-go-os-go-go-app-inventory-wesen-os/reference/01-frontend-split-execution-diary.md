@@ -1,0 +1,150 @@
+---
+Title: Frontend split execution diary
+Ticket: GEPA-10-FRONTEND-SPLIT-CLEANUP
+Status: active
+Topics:
+    - architecture
+    - frontend
+    - go-go-os
+    - go-go-app-inventory
+    - wesen-os
+    - bundling
+DocType: reference
+Intent: long-term
+Owners: []
+RelatedFiles: []
+ExternalSources: []
+Summary: "Chronological research and planning diary for GEPA-10 frontend split."
+LastUpdated: 2026-02-27T19:40:00-05:00
+WhatFor: "Track implementation-relevant findings, command outputs, and decisions."
+WhenToUse: "Read before executing tasks; append entries during implementation."
+---
+
+# Frontend split execution diary
+
+## Goal
+
+Record a concrete, command-backed chronology for GEPA-10 so implementation can continue without re-discovery.
+
+## Context
+
+Ticket scope:
+
+1. Keep engine/common frontend packages in `go-go-os`.
+2. Move `apps/inventory` to `go-go-app-inventory`.
+3. Move launcher bundling/dist responsibility to `wesen-os`.
+
+## Quick Reference
+
+### Key commands used during pre-research
+
+```bash
+cd go-go-os && nl -ba package.json | sed -n '1,260p'
+cd go-go-os && nl -ba pnpm-workspace.yaml | sed -n '1,240p'
+cd go-go-os && nl -ba apps/inventory/package.json | sed -n '1,260p'
+cd go-go-os && nl -ba apps/os-launcher/package.json | sed -n '1,260p'
+cd go-go-os && rg -n "@hypercard/inventory/src/" apps/os-launcher -S
+
+cd wesen-os && ls -la
+cd wesen-os && nl -ba pkg/launcherui/handler.go | sed -n '1,320p'
+cd wesen-os && nl -ba cmd/wesen-os-launcher/main.go | sed -n '220,260p'
+
+cd go-go-app-inventory && ls -la
+cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
+```
+
+### Immediate findings to keep in mind
+
+1. `go-go-os` is still the JS monorepo owner today.
+2. `go-go-app-inventory` currently has no frontend workspace.
+3. `wesen-os` has launcher UI embed handler but no frontend build workspace.
+4. `go-go-os` has stale launcher script references that must be cleaned during migration.
+
+## Usage Examples
+
+### Chronology
+
+1. 2026-02-27 19:05 ET - Ticket baseline inspection
+   - Located ticket workspace:
+     - `go-go-gepa/ttmp/2026/02/27/GEPA-10-FRONTEND-SPLIT-CLEANUP--frontend-split-and-bundling-migration-go-go-os-go-go-app-inventory-wesen-os`
+   - Opened initial `tasks.md` and design doc; both were template-level and needed expansion.
+
+2. 2026-02-27 19:10 ET - Frontend ownership verification in `go-go-os`
+   - Evidence:
+     - `go-go-os/package.json:9-18` builds `apps/inventory` and `apps/os-launcher`.
+     - `go-go-os/pnpm-workspace.yaml:1-3` includes `packages/*` and `apps/*`.
+     - `go-go-os/apps/os-launcher/package.json:14-19` depends on `@hypercard/inventory`.
+   - Interpretation:
+     - Frontend split has not yet occurred; this is still pre-migration state.
+
+3. 2026-02-27 19:14 ET - Coupling analysis (launcher to inventory)
+   - Evidence:
+     - `go-go-os/apps/os-launcher/src/app/modules.tsx:4` imports inventory launcher module from app source.
+     - `go-go-os/apps/os-launcher/src/app/store.ts:8-9` imports inventory reducers from source paths.
+   - Interpretation:
+     - Must introduce public exports in inventory package before/while moving repo boundaries.
+
+4. 2026-02-27 19:18 ET - `wesen-os` readiness check
+   - Evidence:
+     - No `package.json`, no `pnpm-workspace.yaml`, no `apps/`.
+     - `wesen-os/pkg/launcherui/handler.go:12-22` embeds `dist`.
+     - `wesen-os/cmd/wesen-os-launcher/main.go:241-242` mounts launcher UI handler at root.
+   - Interpretation:
+     - Runtime side is ready; frontend build ownership is not bootstrapped yet.
+
+5. 2026-02-27 19:22 ET - `go-go-app-inventory` readiness check
+   - Evidence:
+     - Repository contains Go command/package structure only; no JS workspace.
+   - Interpretation:
+     - Need to create JS workspace scaffolding before moving `apps/inventory`.
+
+6. 2026-02-27 19:27 ET - Script drift check in `go-go-os`
+   - Evidence:
+     - `go-go-os/scripts/smoke-go-go-os-launcher.sh:58` invokes `npm run launcher:binary:build`.
+     - That script key is absent in `go-go-os/package.json`.
+   - Interpretation:
+     - Existing script mismatch is a migration hazard and should be explicitly tracked in tasks.
+
+7. 2026-02-27 19:32 ET - Planning decisions captured
+   - Chosen structure:
+     - platform packages remain in `go-go-os`.
+     - inventory app frontend moves to `go-go-app-inventory`.
+     - launcher frontend build/dist moves to `wesen-os`.
+   - Added phased execution plan and granular task list for intern onboarding.
+
+8. 2026-02-27 19:45 ET - `GEPA10-00` baseline build/test verification
+   - `go-go-os`:
+     - `npm run build` passed (Vite chunk-size warnings only; no build failures).
+     - `npm run test` passed (non-failing warnings about selector memoization and test `act(...)` usage).
+   - `go-go-app-inventory`:
+     - `GOWORK=off go test ./...` passed.
+   - `wesen-os`:
+     - `GOWORK=off go test ./...` passed.
+   - Interpretation:
+     - Migration can proceed from a green baseline.
+
+9. 2026-02-27 19:50 ET - `GEPA10-01` frontend dependency map snapshot
+   - Command:
+     - `cd go-go-os && rg -n "from '@hypercard/" apps/os-launcher/src -S`
+   - Key findings:
+     - Launcher imports multiple app internals via source paths:
+       - `@hypercard/inventory/src/...`
+       - `@hypercard/crm/src/...`
+       - `@hypercard/todo/src/...`
+       - `@hypercard/book-tracker-debug/src/...`
+     - This confirms package-boundary cleanup is required for cross-repo movement.
+
+10. 2026-02-27 19:52 ET - `GEPA10-02` stale script drift confirmation
+   - Commands:
+     - `cd go-go-os && nl -ba package.json | sed -n '1,220p'`
+     - `cd go-go-os && nl -ba scripts/smoke-go-go-os-launcher.sh | sed -n '50,90p'`
+   - Finding:
+     - Smoke script invokes `npm run launcher:binary:build` (`scripts/smoke-go-go-os-launcher.sh:58`).
+     - Root package scripts do not define `launcher:binary:build`.
+   - Interpretation:
+     - Script ownership and invocation path must be fixed during Phase 4/5 cleanup.
+
+## Related
+
+1. `../design-doc/01-frontend-split-execution-plan-and-package-graph.md`
+2. `../tasks.md`

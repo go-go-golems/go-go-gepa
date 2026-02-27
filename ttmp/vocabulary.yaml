@@ -97,6 +97,12 @@ topics:
       description: Browser/frontend event ingestion and rendering concerns
     - slug: inventory-chat
       description: Inventory chat domain backend/frontend module architecture and runtime integration.
+    - slug: wesen-os
+      description: Composition runtime repository for launcher and app assembly
+    - slug: go-go-app-inventory
+      description: Inventory app repository and module ownership
+    - slug: bundling
+      description: Frontend asset bundling and dist assembly pipelines
 docTypes:
     - slug: index
       description: Ticket index

@@ -1,0 +1,19 @@
+# Changelog
+
+## 2026-02-27
+
+- Initial workspace created
+- Expanded design doc into intern-ready frontend split implementation plan with file-backed current-state analysis, phased execution, contract guidance, and verification criteria.
+- Rewrote `tasks.md` into granular phase/task IDs (`GEPA10-00` through `GEPA10-54`) to support task-by-task execution.
+- Updated execution diary with chronological pre-research commands, findings, and migration-relevant risks.
+- Completed Phase 0 tasks `GEPA10-00/01/02`: baseline build/test verification across repos, launcher import map snapshot, and stale script drift evidence capture.
+
+## 2026-02-27
+
+Expanded GEPA-10 into intern-ready execution plan and granular phase-task checklist; added chronological pre-research diary and validated ticket with docmgr doctor.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-10-FRONTEND-SPLIT-CLEANUP--frontend-split-and-bundling-migration-go-go-os-go-go-app-inventory-wesen-os/design-doc/01-frontend-split-execution-plan-and-package-graph.md — Detailed plan and package graph
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-10-FRONTEND-SPLIT-CLEANUP--frontend-split-and-bundling-migration-go-go-os-go-go-app-inventory-wesen-os/reference/01-frontend-split-execution-diary.md — Chronological research commands and findings
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-10-FRONTEND-SPLIT-CLEANUP--frontend-split-and-bundling-migration-go-go-os-go-go-app-inventory-wesen-os/tasks.md — Execution-ordered task breakdown
