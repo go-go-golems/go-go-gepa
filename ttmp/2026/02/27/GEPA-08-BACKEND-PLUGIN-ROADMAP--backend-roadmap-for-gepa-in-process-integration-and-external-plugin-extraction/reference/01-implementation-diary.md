@@ -45,7 +45,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T13:58:00-05:00
+LastUpdated: 2026-02-27T14:06:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -515,6 +515,37 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(OSAppsEndpoint_ListsGEPAMo
 ### Commit
 
 - `36a4765` — `gepa: add run events stream and timeline endpoints`
+
+## Step 14: Cancel endpoint integration coverage (running + terminal)
+
+I added a focused launcher integration test to validate cancel behavior semantics that were still open in the task list.
+
+### Added test
+
+- `TestGEPAModule_CancelEndpointRunningAndTerminalRun`
+
+### Behavior covered
+
+- start a GEPA run from discovered script id,
+- cancel immediately while run is active,
+- verify first cancel returns `status: canceled`,
+- cancel again on already-terminal run,
+- verify second cancel stays `status: canceled` and returns success.
+
+### Validation command
+
+```bash
+cd go-go-os/go-inventory-chat
+GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndScriptsEndpoints|GEPAModule_RunTimelineAndEventsEndpoints|GEPAModule_CancelEndpointRunningAndTerminalRun)$' -count=1
+```
+
+### Result
+
+- Targeted launcher integration suite passed.
+
+### Commit
+
+- `1ee7ce3` — `tests: cover gepa cancel endpoint for running and terminal runs`
 
 ## Quick reference
 

@@ -66,7 +66,7 @@
 - [x] Integration test `/api/os/apps` includes GEPA capabilities and health.
 - [x] Integration test start run + SSE stream + terminal status.
 - [x] Integration test timeline snapshot endpoint reflects streamed events.
-- [ ] Integration test cancel endpoint for running and non-running runs.
+- [x] Integration test cancel endpoint for running and non-running runs.
 - [ ] Regression test legacy alias routes remain unmounted.
 
 ### F. Developer documentation

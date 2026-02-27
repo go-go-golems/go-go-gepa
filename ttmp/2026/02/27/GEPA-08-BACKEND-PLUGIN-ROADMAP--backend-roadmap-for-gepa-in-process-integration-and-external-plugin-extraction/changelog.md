@@ -38,6 +38,9 @@
   - `GET /api/apps/gepa/runs/{run_id}/timeline`,
   - in-memory ordered `RunEvent` log with terminal events,
   - targeted launcher integration test for run/events/timeline flow (`commit 36a4765`).
+- Added dedicated launcher integration coverage for cancel semantics:
+  - cancel while run is in-progress,
+  - cancel again on already-terminal run (`commit 1ee7ce3`).
 
 ## 2026-02-26
 
