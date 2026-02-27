@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T18:40:00-05:00
+LastUpdated: 2026-02-27T18:55:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -543,6 +543,65 @@ Execution plan for this round:
 2. move `backendhost` and `launcherui` packages from `wesen-os` to `go-go-os/go-inventory-chat` using `mv`,
 3. rewire `wesen-os` imports/go.mod to consume moved generic packages from `go-go-os` module path,
 4. run cross-repo compile/test validation and log commit evidence.
+
+## Phase 18: cleanup round execution (C2-C6)
+
+### C2/C3: backendhost move-back and rewire
+
+`mv` operation:
+
+```bash
+mv wesen-os/pkg/backendhost go-go-os/go-inventory-chat/pkg/backendhost
+```
+
+Rewire in `wesen-os`:
+
+1. Replaced imports from:
+   - `github.com/go-go-golems/wesen-os/pkg/backendhost`
+   to:
+   - `github.com/go-go-golems/hypercard-inventory-chat/pkg/backendhost`
+2. Added local replace entry in `wesen-os/go.mod` for development:
+   - `replace github.com/go-go-golems/hypercard-inventory-chat => ../go-go-os/go-inventory-chat`
+
+Commits:
+
+- `go-go-os@b627d8e` - `feat(go-go-os): restore generic backendhost package`
+- `wesen-os@ad3634e` - `refactor(wesen-os): consume backendhost from go-go-os module`
+
+### C4/C5: launcherui move-back and rewire
+
+`mv` operation:
+
+```bash
+mv wesen-os/pkg/launcherui go-go-os/go-inventory-chat/pkg/launcherui
+```
+
+Rewire in `wesen-os`:
+
+1. Replaced imports from:
+   - `github.com/go-go-golems/wesen-os/pkg/launcherui`
+   to:
+   - `github.com/go-go-golems/hypercard-inventory-chat/pkg/launcherui`
+
+Commits:
+
+- `go-go-os@02ff51d` - `feat(go-go-os): restore launcher UI web-serving package`
+- `wesen-os@7bf47f7` - `refactor(wesen-os): consume launcherui from go-go-os module`
+
+### C6: validation matrix
+
+Commands:
+
+```bash
+cd go-go-os/go-inventory-chat && GOWORK=off go test ./...
+cd wesen-os && GOWORK=off go test ./...
+cd go-go-app-inventory && GOWORK=off go test ./...
+cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule
+```
+
+Result:
+
+- all pass.
 
 ### Blocker discovered for next task (B3)
 

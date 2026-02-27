@@ -62,9 +62,14 @@ Move generic module mounting + web-serving host machinery out of `wesen-os` and 
 ### Tasks
 
 - [x] C1: Add cleanup task board and diary section for this round.
-- [ ] C2: Move `pkg/backendhost` from `wesen-os` to `go-go-os/go-inventory-chat/pkg/backendhost` using `mv`.
-- [ ] C3: Rewire `wesen-os` imports/go.mod to consume `github.com/go-go-golems/hypercard-inventory-chat/pkg/backendhost`.
-- [ ] C4: Move `pkg/launcherui` from `wesen-os` to `go-go-os/go-inventory-chat/pkg/launcherui` using `mv`.
-- [ ] C5: Rewire `wesen-os` imports/go.mod to consume `github.com/go-go-golems/hypercard-inventory-chat/pkg/launcherui`.
-- [ ] C6: Run compile/test validation across `go-go-os/go-inventory-chat`, `wesen-os`, `go-go-app-inventory`, and `go-go-gepa/pkg/backendmodule`.
-- [ ] C7: Update diary/changelog with commit-by-commit cleanup log.
+- [x] C2: Move `pkg/backendhost` from `wesen-os` to `go-go-os/go-inventory-chat/pkg/backendhost` using `mv`.
+  - Evidence: `go-go-os@b627d8e` (`feat(go-go-os): restore generic backendhost package`)
+- [x] C3: Rewire `wesen-os` imports/go.mod to consume `github.com/go-go-golems/hypercard-inventory-chat/pkg/backendhost`.
+  - Evidence: `wesen-os@ad3634e` (`refactor(wesen-os): consume backendhost from go-go-os module`)
+- [x] C4: Move `pkg/launcherui` from `wesen-os` to `go-go-os/go-inventory-chat/pkg/launcherui` using `mv`.
+  - Evidence: `go-go-os@02ff51d` (`feat(go-go-os): restore launcher UI web-serving package`)
+- [x] C5: Rewire `wesen-os` imports/go.mod to consume `github.com/go-go-golems/hypercard-inventory-chat/pkg/launcherui`.
+  - Evidence: `wesen-os@7bf47f7` (`refactor(wesen-os): consume launcherui from go-go-os module`)
+- [x] C6: Run compile/test validation across `go-go-os/go-inventory-chat`, `wesen-os`, `go-go-app-inventory`, and `go-go-gepa/pkg/backendmodule`.
+  - Validation: all target test commands pass.
+- [x] C7: Update diary/changelog with commit-by-commit cleanup log.

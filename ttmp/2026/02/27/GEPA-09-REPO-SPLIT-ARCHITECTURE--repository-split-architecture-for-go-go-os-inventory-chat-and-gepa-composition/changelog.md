@@ -110,3 +110,22 @@ Closed B4/B5 planning tasks in ticket docs:
 Closed B7 with phase-2 backend plugin-runtime handoff notes document:
 
 - `design-doc/03-phase-2-backend-plugin-runtime-handoff-notes.md`
+
+## 2026-02-27
+
+Started and executed cleanup round to move generic host/mounting web-serving machinery back to `go-go-os`.
+
+### Commits produced
+
+- `go-go-gepa@f1b5c9c` — added cleanup task board and diary kickoff
+- `go-go-os@b627d8e` — restored `pkg/backendhost`
+- `wesen-os@ad3634e` — rewired backendhost imports to `go-go-os` module
+- `go-go-os@02ff51d` — restored `pkg/launcherui`
+- `wesen-os@7bf47f7` — rewired launcherui imports to `go-go-os` module
+
+### Validation
+
+- `go-go-os/go-inventory-chat`: `GOWORK=off go test ./...` passed
+- `wesen-os`: `GOWORK=off go test ./...` passed
+- `go-go-app-inventory`: `GOWORK=off go test ./...` passed
+- `go-go-gepa/pkg/backendmodule`: `GOWORK=off go test ./pkg/backendmodule` passed
