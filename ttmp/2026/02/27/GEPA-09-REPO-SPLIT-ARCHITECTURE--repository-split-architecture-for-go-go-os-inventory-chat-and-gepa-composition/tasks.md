@@ -11,20 +11,33 @@
 - [x] Produce v2 renamed topology design for `wesen-os` + `go-go-app-inventory`
 - [x] Produce detailed execution task board for first-plan implementation
 
-## Next (V2 execution sequence)
+## Backend-Only Split Execution Board (Detailed)
 
-- [ ] Create repository `wesen-os` and bootstrap backend host core package
-- [ ] Create repository `go-go-app-inventory` and extract inventory backend from `go-go-os/go-inventory-chat`
-- [ ] Port `internal/inventorydb` and `internal/pinoweb` into `go-go-app-inventory`
-- [ ] Define host-agnostic inventory backend `Component` API in `go-go-app-inventory`
-- [ ] Add lifecycle, route, and reflection tests for `go-go-app-inventory`
-- [ ] Port generic backend host package into `wesen-os` (`module/registry/lifecycle/routes/manifest`)
-- [ ] Implement `wesen-os` inventory adapter over `go-go-app-inventory` component
-- [ ] Implement `wesen-os` GEPA adapter over `go-go-gepa`
-- [ ] Finalize frontend artifact ingestion path from `go-go-os` into `wesen-os`
-- [ ] Add `wesen-os` launcher smoke tests for `/api/os/apps` and namespaced routes
-- [ ] Pin dependency versions in `wesen-os` release metadata (`go-go-os`, `go-go-gepa`, `go-go-app-inventory`)
-- [ ] Cut over docs and naming to `wesen-os` and `go-go-app-inventory` with no compatibility aliases
+### Completed in this run
+
+- [x] S1: Finalize backend-only task decomposition in ticket docs and commit workspace baseline.
+  - Evidence: `go-go-gepa@25b9212` (`docs(gepa-09): add v2 wesen-os backend split plan and task board`)
+- [x] S2: Extract inventory backend source from `go-go-os/go-inventory-chat` into `go-go-app-inventory` using `mv` for source-preserving history.
+  - Evidence: `go-go-app-inventory@45127d1` (`feat: extract inventory backend packages from go-go-os`)
+  - Evidence: `go-go-os@4f6c181` (`refactor: move inventory backend sources to go-go-app-inventory`)
+- [x] S3: Extract generic backend host + launcher + GEPA host package from `go-go-os` into `wesen-os` using `mv`.
+  - Evidence: `wesen-os@59bd4c6` (`feat: move os backend host and launcher into wesen-os`)
+  - Evidence: `go-go-os@dc4dd17` (`refactor: remove moved backend host and launcher sources`)
+- [x] S4: Rewire imports and module dependencies for cross-repo build and run validation.
+  - `wesen-os` import rewrites to `go-go-app-inventory/pkg/*`
+  - `wesen-os` module init + local replace for `go-go-app-inventory`
+- [x] S5: Fix integration contract regression (`registry` key in profile list items) and re-run tests.
+  - Validation: `cd wesen-os && GOWORK=off go test ./...` passes
+
+### Pending backend tasks (next commits)
+
+- [ ] B1: Introduce an explicit host-agnostic `Component` API package in `go-go-app-inventory` (instead of direct launcher-level wiring).
+- [ ] B2: Move inventory route/lifecycle/manifest contract tests into `go-go-app-inventory` to harden repo boundary.
+- [ ] B3: Replace copied `wesen-os/pkg/gepa` internals with adapter over `go-go-gepa` exported APIs.
+- [ ] B4: Add explicit dependency/version matrix docs for `wesen-os` consuming `go-go-gepa` and `go-go-app-inventory`.
+- [ ] B5: Add backend smoke pipeline in `wesen-os` CI for `/api/os/apps`, `/api/apps/inventory/*`, and `/api/apps/gepa/*`.
+- [ ] B6: Remove stale empty directories in `go-go-os/go-inventory-chat` and document residual ownership boundary.
+- [ ] B7: Prepare phase-2 extraction handoff notes (generic external plugin runtime), backend-only scope.
 
 ## Plan Reference
 

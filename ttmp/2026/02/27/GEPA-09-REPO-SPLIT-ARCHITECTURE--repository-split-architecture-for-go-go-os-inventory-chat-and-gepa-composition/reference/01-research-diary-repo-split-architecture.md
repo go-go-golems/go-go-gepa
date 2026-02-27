@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T17:15:00-05:00
+LastUpdated: 2026-02-27T17:26:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -318,3 +318,124 @@ This diary section will be updated after each task commit with:
 - exact files moved,
 - exact commit hash and message,
 - validation commands and results.
+
+## Phase 12: backend-only split execution (task-by-task with commits)
+
+This phase executed the backend-only split directly in code across the target repos, with commits per slice and `mv`-first migration where possible.
+
+### S1. Ticket/task baseline commit
+
+Commit:
+
+- `go-go-gepa@25b9212` - `docs(gepa-09): add v2 wesen-os backend split plan and task board`
+
+Outcome:
+
+- Ticket workspace captured v2 naming (`wesen-os`, `go-go-app-inventory`).
+- Execution board prepared before code migration.
+
+### S2. Move inventory backend from `go-go-os` into `go-go-app-inventory`
+
+Primary move operations (representative):
+
+```bash
+mv go-go-os/go-inventory-chat/internal/inventorydb go-go-app-inventory/pkg/inventorydb
+mv go-go-os/go-inventory-chat/internal/pinoweb go-go-app-inventory/pkg/pinoweb
+mv go-go-os/go-inventory-chat/cmd/go-go-os-launcher/tools_inventory*.go go-go-app-inventory/pkg/inventorytools/
+mv go-go-os/go-inventory-chat/cmd/hypercard-inventory-seed go-go-app-inventory/cmd/inventory-seed
+```
+
+Implementation notes:
+
+- Initialized module in extracted repo:
+  - `go mod init github.com/go-go-golems/go-go-app-inventory`
+- Converted extracted tool registry into reusable package API:
+  - `package main` -> `package inventorytools`
+  - exported `InventoryToolNames` and `InventoryToolFactories`
+- Updated imports to extracted package paths.
+
+Commits:
+
+- `go-go-app-inventory@45127d1` - `feat: extract inventory backend packages from go-go-os`
+- `go-go-os@4f6c181` - `refactor: move inventory backend sources to go-go-app-inventory`
+
+Validation:
+
+```bash
+cd go-go-app-inventory && GOWORK=off go test ./...
+```
+
+Result:
+
+- Pass.
+
+### S3. Move backend host + launcher runtime into `wesen-os`
+
+Primary move operations (representative):
+
+```bash
+mv go-go-os/go-inventory-chat/internal/backendhost wesen-os/pkg/backendhost
+mv go-go-os/go-inventory-chat/internal/launcherui wesen-os/pkg/launcherui
+mv go-go-os/go-inventory-chat/internal/gepa wesen-os/pkg/gepa
+mv go-go-os/go-inventory-chat/cmd/go-go-os-launcher wesen-os/cmd/wesen-os-launcher
+```
+
+Implementation notes:
+
+- Initialized module:
+  - `go mod init github.com/go-go-golems/wesen-os`
+- Added local replace for development wiring:
+  - `go mod edit -replace github.com/go-go-golems/go-go-app-inventory=../go-go-app-inventory`
+- Rewrote imports from old in-tree paths to:
+  - `github.com/go-go-golems/wesen-os/pkg/...`
+  - `github.com/go-go-golems/go-go-app-inventory/pkg/...`
+- Renamed command identifiers to `wesen-os-launcher`.
+
+Commits:
+
+- `wesen-os@59bd4c6` - `feat: move os backend host and launcher into wesen-os`
+- `go-go-os@dc4dd17` - `refactor: remove moved backend host and launcher sources`
+
+### S4. Test regression and fix
+
+Issue discovered:
+
+- `TestProfileAPI_CRUDRoutesAreMounted` failed with:
+  - `unexpected profile API contract key: registry`
+
+Root cause:
+
+- Integration contract helper `assertProfileListItemContract` allowed list-item keys that omitted `registry`, but runtime payload now includes it.
+
+Fix:
+
+- Added `"registry"` to allowed keys in:
+  - `wesen-os/cmd/wesen-os-launcher/main_integration_test.go`
+
+Validation:
+
+```bash
+cd wesen-os && GOWORK=off go test ./...
+```
+
+Result:
+
+- Pass.
+
+### S5. Post-move health check and remaining gaps
+
+Sanity check:
+
+```bash
+cd go-go-os/go-inventory-chat && GOWORK=off go test ./...
+```
+
+Result:
+
+- `./...` matched no packages (expected at current extraction state).
+
+Known remaining backend-only gaps:
+
+1. Formal host-agnostic `Component` interface in `go-go-app-inventory` still needs explicit package boundary.
+2. `wesen-os/pkg/gepa` is still copied/migrated code and not yet replaced by adapter over `go-go-gepa` APIs.
+3. Backend CI/smoke automation for multi-repo composition still pending.
