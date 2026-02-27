@@ -97,3 +97,10 @@ Resolved B3 by extracting GEPA backend core into `go-go-gepa` and switching `wes
 
 - `wesen-os/pkg/gepa` now contains adapter-only host integration code.
 - GEPA backend behavior/tests live in `go-go-gepa/pkg/backendmodule`.
+
+## 2026-02-27
+
+Closed B4/B5 planning tasks in ticket docs:
+
+- added explicit dependency/version matrix to v2 design doc
+- marked backend smoke pipeline complete using existing `go test ./...` CI + integration endpoint coverage

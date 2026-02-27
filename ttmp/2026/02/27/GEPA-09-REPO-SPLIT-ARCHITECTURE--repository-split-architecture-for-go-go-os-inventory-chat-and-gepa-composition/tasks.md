@@ -39,8 +39,11 @@
 - [x] B3: Replace copied `wesen-os/pkg/gepa` internals with adapter over `go-go-gepa` exported APIs.
   - Evidence: `go-go-gepa@21635cc` (`feat: extract gepa backend module package for os adapters`)
   - Evidence: `wesen-os@4d4a61c` (`refactor: adapt wesen-os gepa module to go-go-gepa backend package`)
-- [ ] B4: Add explicit dependency/version matrix docs for `wesen-os` consuming `go-go-gepa` and `go-go-app-inventory`.
-- [ ] B5: Add backend smoke pipeline in `wesen-os` CI for `/api/os/apps`, `/api/apps/inventory/*`, and `/api/apps/gepa/*`.
+- [x] B4: Add explicit dependency/version matrix docs for `wesen-os` consuming `go-go-gepa` and `go-go-app-inventory`.
+  - Evidence: `design-doc/02-v2-wesen-os-composition-plan-go-go-os-go-go-gepa-go-go-app-inventory.md` (dependency/version matrix section)
+- [x] B5: Add backend smoke pipeline in `wesen-os` CI for `/api/os/apps`, `/api/apps/inventory/*`, and `/api/apps/gepa/*`.
+  - Evidence: `.github/workflows/push.yml` runs `go test ./...`
+  - Evidence: `cmd/wesen-os-launcher/main_integration_test.go` covers `/api/os/apps`, inventory routes, and GEPA routes
 - [x] B6: Remove stale empty directories in `go-go-os/go-inventory-chat` and document residual ownership boundary.
   - Note: directories were untracked empties and were removed locally; no git diff was produced.
 - [ ] B7: Prepare phase-2 extraction handoff notes (generic external plugin runtime), backend-only scope.

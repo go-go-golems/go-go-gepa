@@ -35,7 +35,7 @@ RelatedFiles:
       Note: Inventory runtime composition extraction source
 ExternalSources: []
 Summary: 'V2 plan: rename composition target to wesen-os, extract inventory backend into go-go-app-inventory, and compose go-go-os + go-go-gepa + go-go-app-inventory in wesen-os with a detailed phased task board.'
-LastUpdated: 2026-02-27T17:15:00-05:00
+LastUpdated: 2026-02-27T18:10:00-05:00
 WhatFor: Define first execution plan for a 3-input composition model that produces wesen-os as the product runtime.
 WhenToUse: Use as the primary implementation plan for repository split and composition execution work.
 ---
@@ -162,6 +162,25 @@ flowchart TD
 ```
 
 `wesen-os` is the only product release repo.
+
+## Dependency/version matrix (backend split baseline)
+
+This table records the concrete backend split state after B1-B3 implementation commits.
+
+| Consumer | Dependency | Baseline | Notes |
+| --- | --- | --- | --- |
+| `wesen-os` | `github.com/go-go-golems/go-go-app-inventory` | `v0.0.0-00010101000000-000000000000` + `replace ../go-go-app-inventory` | Local composition workspace pin while extraction stabilizes |
+| `wesen-os` | `github.com/go-go-golems/go-go-gepa` | `v0.0.0-20260223022920-190ca45ac964` + `replace ../go-go-gepa` | Uses extracted `pkg/backendmodule` adapter path |
+| `wesen-os` | `github.com/go-go-golems/geppetto` | `v0.10.2` | Shared runtime/profiles/middleware contracts |
+| `go-go-app-inventory` | `github.com/go-go-golems/pinocchio` | `v0.10.1` | Chat/http handlers and runtime composition interfaces |
+| `go-go-app-inventory` | `github.com/go-go-golems/plz-confirm` | `v0.0.4` | Confirm backend route mounting via component API |
+| `go-go-gepa` | `github.com/go-go-golems/go-go-goja` | `v0.4.0` | JS execution/runtime integration |
+
+Policy:
+
+1. `wesen-os` owns final tested integration pins.
+2. Upstream repos (`go-go-app-inventory`, `go-go-gepa`) can advance independently.
+3. `replace` directives are allowed in local integration branches and should be removed/replaced by released tags before release-candidate cuts.
 
 ## Design Decisions
 

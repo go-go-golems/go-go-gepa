@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T18:05:00-05:00
+LastUpdated: 2026-02-27T18:15:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -497,6 +497,19 @@ cd wesen-os && GOWORK=off go test ./...
 Result:
 
 - both pass.
+
+## Phase 15: B4/B5 closure and remaining scope
+
+After B3 code extraction completed, backend-only planning tasks were synchronized:
+
+1. B4 completed by adding a concrete dependency/version matrix in the v2 design document, including current `wesen-os` pins and local `replace` strategy.
+2. B5 marked complete based on existing enforced CI path:
+   - `wesen-os/.github/workflows/push.yml` executes `go test ./...`
+   - integration tests already assert `/api/os/apps`, inventory routes, and GEPA routes.
+
+Remaining backend-only task:
+
+- B7 (phase-2 external plugin-runtime handoff notes) is still pending and should be addressed as a follow-up documentation slice.
 
 ### Blocker discovered for next task (B3)
 
