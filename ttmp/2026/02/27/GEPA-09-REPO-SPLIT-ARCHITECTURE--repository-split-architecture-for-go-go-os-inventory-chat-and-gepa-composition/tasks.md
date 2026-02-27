@@ -94,3 +94,6 @@ Apply follow-up correction:
 - [x] D4: Rewire `wesen-os` imports/go.mod replaces to consume `github.com/go-go-golems/go-go-os/pkg/backendhost` while using local `wesen-os/pkg/launcherui`.
   - Evidence: `wesen-os@fee0b19`
 - [x] D5: Run full validation matrix and update diary/changelog with commit evidence.
+- [x] D6: Rename backend directory from `go-inventory-chat` to `go-go-os` and remove stale launcher assembly scripts from `go-go-os`.
+  - Evidence: `go-go-os@6d4302a` (`refactor(go-go-os): rename backend directory and drop launcher assembly scripts`)
+  - Evidence: `wesen-os@1bfdf2a` (`chore(wesen-os): update local go-go-os replace path`)

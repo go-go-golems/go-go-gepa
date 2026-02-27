@@ -143,3 +143,16 @@ Applied adjustment round:
 - `go-go-gepa@8f97a30` — adjustment task board + diary kickoff
 - `go-go-os@5a74c79` — module rename + launcherui removal
 - `wesen-os@fee0b19` — launcherui local + backendhost import/replace rewiring
+
+## 2026-02-27
+
+Applied final rename cleanup requested:
+
+- renamed backend directory `go-go-os/go-inventory-chat` -> `go-go-os/go-go-os`
+- removed stale launcher assembly scripts from `go-go-os`
+- updated local replace path in `wesen-os`
+
+### Commits produced
+
+- `go-go-os@6d4302a` — directory rename + launcher script cleanup
+- `wesen-os@1bfdf2a` — replace path update to new directory

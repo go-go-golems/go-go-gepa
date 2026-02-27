@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T19:15:00-05:00
+LastUpdated: 2026-02-27T19:25:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -602,6 +602,44 @@ cd go-go-gepa && GOWORK=off go test ./pkg/backendmodule
 Result:
 
 - all pass.
+
+## Phase 21: directory rename + launcher script cleanup
+
+User follow-up required one more hard-cut cleanup:
+
+1. rename backend directory itself from `go-inventory-chat` to `go-go-os`,
+2. remove stale launcher assembly scripts from `go-go-os` (they no longer own composition binary assembly),
+3. ensure `go-go-os` contains no `wesen-os` mentions.
+
+### Directory rename
+
+`mv` operation:
+
+```bash
+mv go-go-os/go-inventory-chat go-go-os/go-go-os
+```
+
+### Script and docs cleanup in go-go-os
+
+Actions:
+
+1. removed stale scripts:
+   - `scripts/build-go-go-os-launcher.sh`
+   - `scripts/sync-launcher-ui.sh`
+2. removed obsolete launcher assembly npm scripts from root `package.json`.
+3. updated README references from `go-inventory-chat` to `go-go-os`.
+
+### wesen-os path update
+
+Updated local replace:
+
+- from `../go-go-os/go-inventory-chat`
+- to `../go-go-os/go-go-os`
+
+### Commits
+
+- `go-go-os@6d4302a` - `refactor(go-go-os): rename backend directory and drop launcher assembly scripts`
+- `wesen-os@1bfdf2a` - `chore(wesen-os): update local go-go-os replace path`
 
 ## Phase 19: adjustment round kickoff
 
