@@ -7,6 +7,7 @@
 - Rewrote `tasks.md` into granular phase/task IDs (`GEPA10-00` through `GEPA10-54`) to support task-by-task execution.
 - Updated execution diary with chronological pre-research commands, findings, and migration-relevant risks.
 - Completed Phase 0 tasks `GEPA10-00/01/02`: baseline build/test verification across repos, launcher import map snapshot, and stale script drift evidence capture.
+- Completed Phase 1 tasks `GEPA10-10..14`: moved `apps/inventory` via `mv` into `go-go-app-inventory`, bootstrapped new frontend workspace there, rewired root references in `go-go-os`, and validated build/test/dev startup.
 
 ## 2026-02-27
 

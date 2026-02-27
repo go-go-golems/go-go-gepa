@@ -144,6 +144,45 @@ cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
    - Interpretation:
      - Script ownership and invocation path must be fixed during Phase 4/5 cleanup.
 
+11. 2026-02-27 20:05 ET - `GEPA10-10` + `GEPA10-11` workspace bootstrap and move
+   - Commands:
+     - `mkdir -p go-go-app-inventory/apps`
+     - `mv go-go-os/apps/inventory go-go-app-inventory/apps/`
+   - Added frontend workspace scaffolding in `go-go-app-inventory`:
+     - `package.json`
+     - `pnpm-workspace.yaml`
+     - `tsconfig.json`
+     - `.storybook/*`
+     - `tooling/vite/createHypercardViteConfig.ts`
+   - Interpretation:
+     - Inventory frontend ownership is now physically in `go-go-app-inventory`.
+
+12. 2026-02-27 20:15 ET - `GEPA10-12` inventory package rewiring
+   - Updated moved inventory app config:
+     - `apps/inventory/tsconfig.json` paths/references now point to `../../../go-go-os/packages/*`.
+     - Removed `workspace:*` dependencies for `@hypercard/*` from `apps/inventory/package.json`.
+     - Updated build/typecheck scripts to use root-installed TypeScript binary path.
+   - Updated local Vite helper alias paths in `go-go-app-inventory/tooling/vite/createHypercardViteConfig.ts`.
+
+13. 2026-02-27 20:25 ET - `GEPA10-13` go-go-os root reference cleanup
+   - Updated `go-go-os/package.json` scripts to remove `apps/inventory` build/storybook dependence.
+   - Updated `go-go-os/tsconfig.json` references to remove `apps/inventory` and `apps/os-launcher`.
+   - Updated `go-go-os/.storybook/main.ts` to remove inventory story directory.
+   - Follow-up fix:
+     - Updated `go-go-os/packages/engine/src/__tests__/storybook-app-smoke.test.ts` to remove hardcoded inventory story path.
+
+14. 2026-02-27 20:35 ET - `GEPA10-14` validation run
+   - `go-go-app-inventory`:
+     - `npm install` passed.
+     - `npm run build` passed after TypeScript script fix.
+     - `timeout 20s npm run dev -w apps/inventory -- --host 127.0.0.1 --port 5179` showed Vite ready at `http://127.0.0.1:5179/`.
+     - `GOWORK=off go test ./...` passed.
+   - `go-go-os`:
+     - `npm run build` passed.
+     - `npm run test` initially failed due removed inventory story path, then passed after updating app smoke test.
+   - Interpretation:
+     - Phase 1 is complete and validated end-to-end for current boundaries.
+
 ## Related
 
 1. `../design-doc/01-frontend-split-execution-plan-and-package-graph.md`

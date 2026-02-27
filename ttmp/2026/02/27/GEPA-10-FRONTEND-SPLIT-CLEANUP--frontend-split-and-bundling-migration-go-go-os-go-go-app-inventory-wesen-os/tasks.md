@@ -8,11 +8,11 @@
 
 ## Phase 1 - Move Inventory Frontend Ownership
 
-- [ ] `GEPA10-10` Bootstrap JS workspace in `go-go-app-inventory` (`package.json`, `pnpm-workspace.yaml`, root `tsconfig.json`).
-- [ ] `GEPA10-11` Move `go-go-os/apps/inventory` to `go-go-app-inventory/apps/inventory` using `mv`.
-- [ ] `GEPA10-12` Rewire inventory package scripts and TypeScript references in `go-go-app-inventory`.
-- [ ] `GEPA10-13` Remove `apps/inventory` references from `go-go-os` root workspace/build scripts.
-- [ ] `GEPA10-14` Verify inventory package can run `dev`, `build`, and tests in `go-go-app-inventory`.
+- [x] `GEPA10-10` Bootstrap JS workspace in `go-go-app-inventory` (`package.json`, `pnpm-workspace.yaml`, root `tsconfig.json`).
+- [x] `GEPA10-11` Move `go-go-os/apps/inventory` to `go-go-app-inventory/apps/inventory` using `mv`.
+- [x] `GEPA10-12` Rewire inventory package scripts and TypeScript references in `go-go-app-inventory`.
+- [x] `GEPA10-13` Remove `apps/inventory` references from `go-go-os` root workspace/build scripts.
+- [x] `GEPA10-14` Verify inventory package can run `dev`, `build`, and tests in `go-go-app-inventory`.
 
 ## Phase 2 - Stabilize App Public API Contracts
 
