@@ -104,3 +104,9 @@ Closed B4/B5 planning tasks in ticket docs:
 
 - added explicit dependency/version matrix to v2 design doc
 - marked backend smoke pipeline complete using existing `go test ./...` CI + integration endpoint coverage
+
+## 2026-02-27
+
+Closed B7 with phase-2 backend plugin-runtime handoff notes document:
+
+- `design-doc/03-phase-2-backend-plugin-runtime-handoff-notes.md`

@@ -46,7 +46,8 @@
   - Evidence: `cmd/wesen-os-launcher/main_integration_test.go` covers `/api/os/apps`, inventory routes, and GEPA routes
 - [x] B6: Remove stale empty directories in `go-go-os/go-inventory-chat` and document residual ownership boundary.
   - Note: directories were untracked empties and were removed locally; no git diff was produced.
-- [ ] B7: Prepare phase-2 extraction handoff notes (generic external plugin runtime), backend-only scope.
+- [x] B7: Prepare phase-2 extraction handoff notes (generic external plugin runtime), backend-only scope.
+  - Evidence: `design-doc/03-phase-2-backend-plugin-runtime-handoff-notes.md`
 
 ## Plan Reference
 
