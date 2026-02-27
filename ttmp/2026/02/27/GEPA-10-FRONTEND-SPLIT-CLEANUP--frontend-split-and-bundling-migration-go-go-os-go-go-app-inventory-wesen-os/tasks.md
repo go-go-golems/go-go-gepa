@@ -16,10 +16,10 @@
 
 ## Phase 2 - Stabilize App Public API Contracts
 
-- [ ] `GEPA10-20` Add explicit public launcher/reducer exports in `@hypercard/inventory`.
-- [ ] `GEPA10-21` Replace launcher source-path imports (`@hypercard/inventory/src/*`) with package export imports.
-- [ ] `GEPA10-22` Add/adjust tests proving launcher works with only public inventory exports.
-- [ ] `GEPA10-23` Add guardrail grep/test to prevent new `@hypercard/inventory/src/*` imports.
+- [x] `GEPA10-20` Add explicit public launcher/reducer exports in `@hypercard/inventory`.
+- [x] `GEPA10-21` Replace launcher source-path imports (`@hypercard/inventory/src/*`) with package export imports.
+- [x] `GEPA10-22` Add/adjust tests proving launcher works with only public inventory exports.
+- [x] `GEPA10-23` Add guardrail grep/test to prevent new `@hypercard/inventory/src/*` imports.
 
 ## Phase 3 - Move Launcher Frontend to wesen-os
 

@@ -183,6 +183,33 @@ cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
    - Interpretation:
      - Phase 1 is complete and validated end-to-end for current boundaries.
 
+15. 2026-02-27 20:50 ET - `GEPA10-20` public export surface in `@hypercard/inventory`
+   - Added explicit package exports in `apps/inventory/package.json`:
+     - `"./launcher"` -> `src/launcher/public.ts`
+     - `"./reducers"` -> `src/reducers.ts`
+   - Added new source files:
+     - `apps/inventory/src/launcher/public.ts`
+     - `apps/inventory/src/reducers.ts`
+     - `apps/inventory/src/index.ts`
+
+16. 2026-02-27 20:55 ET - `GEPA10-21` launcher import rewiring
+   - Updated imports in `go-go-os/apps/os-launcher`:
+     - `modules.tsx`: `@hypercard/inventory/launcher`
+     - `store.ts`: `@hypercard/inventory/reducers`
+   - Result:
+     - No remaining direct inventory source-path imports in launcher app code.
+
+17. 2026-02-27 20:58 ET - `GEPA10-22` + `GEPA10-23` test/guardrail updates
+   - Updated `launcherHost.test.tsx`:
+     - Added assertion that modules/store import only public inventory exports.
+     - Added explicit negative assertions for `@hypercard/inventory/src/`.
+     - Repointed file-read checks for inventory source files to new repo path (`go-go-app-inventory`).
+   - Validation commands:
+     - `go-go-app-inventory`: `npm run build`, `GOWORK=off go test ./...` -> pass
+     - `go-go-os`: `npm run build`, `npm run test` -> pass
+   - Interpretation:
+     - Public API boundary is enforced and regression-guarded.
+
 ## Related
 
 1. `../design-doc/01-frontend-split-execution-plan-and-package-graph.md`
