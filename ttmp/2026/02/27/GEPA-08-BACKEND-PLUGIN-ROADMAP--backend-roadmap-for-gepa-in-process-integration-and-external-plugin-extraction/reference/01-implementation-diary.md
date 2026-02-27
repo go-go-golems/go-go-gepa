@@ -49,7 +49,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T14:14:00-05:00
+LastUpdated: 2026-02-27T14:22:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -586,6 +586,42 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndSc
 ### Commit
 
 - `46efc18` — `gepa: introduce runtime interface for handler decoupling`
+
+## Step 16: Run-service transition/race/replay unit tests
+
+I added focused unit coverage at the `InMemoryRunService` level to harden behavior independently from HTTP routes.
+
+### Added test file
+
+- `go-go-os/go-inventory-chat/internal/gepa/run_service_test.go`
+
+### Test coverage added
+
+- state transition flow:
+  - `running` -> `completed`,
+  - verifies terminal event sequence includes `run.started` then `run.completed`.
+- cancel race:
+  - concurrent cancel calls on same run,
+  - verifies final status is `canceled`,
+  - verifies only one terminal cancel event is emitted.
+- replay semantics:
+  - `Events(afterSeq)` returns only events beyond cursor.
+
+### Validation command
+
+```bash
+cd go-go-os/go-inventory-chat
+GOWORK=off go test ./internal/gepa ./internal/backendhost -count=1
+GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndScriptsEndpoints|GEPAModule_RunTimelineAndEventsEndpoints|GEPAModule_CancelEndpointRunningAndTerminalRun)$' -count=1
+```
+
+### Result
+
+- All targeted suites passed.
+
+### Commit
+
+- `29618ff` — `tests: add run-service transition and race coverage`
 
 ## Quick reference
 

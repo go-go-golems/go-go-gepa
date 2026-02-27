@@ -58,8 +58,8 @@
 
 ### E. Testing and verification
 
-- [ ] Unit test run state transitions including invalid transitions.
-- [ ] Unit test cancel behavior race scenarios.
+- [x] Unit test run state transitions including invalid transitions.
+- [x] Unit test cancel behavior race scenarios.
 - [ ] Unit test translator mapping fidelity.
 - [ ] Unit test timeline projection merge/upsert behavior.
 - [x] Integration test namespaced route mounting for GEPA module.
