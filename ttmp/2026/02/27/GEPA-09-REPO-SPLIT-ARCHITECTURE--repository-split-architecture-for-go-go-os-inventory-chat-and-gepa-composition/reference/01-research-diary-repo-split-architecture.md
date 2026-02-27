@@ -23,7 +23,7 @@ RelatedFiles:
       Note: Build workflow and coupling evidence
 ExternalSources: []
 Summary: Chronological research log for the repository split design, including v2 rename to wesen-os and go-go-app-inventory plus command evidence and task planning.
-LastUpdated: 2026-02-27T18:22:00-05:00
+LastUpdated: 2026-02-27T18:40:00-05:00
 WhatFor: Provide continuation context and audit trail for how the repository split design was produced.
 WhenToUse: Use when continuing implementation planning, reviewing assumptions, or retracing source evidence.
 ---
@@ -529,6 +529,20 @@ Result:
 
 - B7 marked complete in task board.
 - Backend-only split board is now fully closed for this ticket phase.
+
+## Phase 17: cleanup round kickoff (move generic host back to go-go-os)
+
+New direction:
+
+1. keep generic module mounting and web-serving host machinery in `go-go-os`,
+2. keep `wesen-os` as composition launcher that registers app modules and starts runtime.
+
+Execution plan for this round:
+
+1. add cleanup task board (C1-C7),
+2. move `backendhost` and `launcherui` packages from `wesen-os` to `go-go-os/go-inventory-chat` using `mv`,
+3. rewire `wesen-os` imports/go.mod to consume moved generic packages from `go-go-os` module path,
+4. run cross-repo compile/test validation and log commit evidence.
 
 ### Blocker discovered for next task (B3)
 
