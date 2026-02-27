@@ -38,7 +38,7 @@
 
 ### C. Runtime adapter and run manager
 
-- [ ] Define `GepaRuntime` interface for list/start/cancel/health.
+- [x] Define `GepaRuntime` interface for list/start/cancel/health.
 - [ ] Implement `InProcessGepaRuntime` using `go-go-gepa` runtime APIs.
 - [x] Add script discovery/catalog component with deterministic IDs.
 - [x] Add run manager with state machine (`queued/running/completed/failed/canceled`).
@@ -88,7 +88,7 @@
 
 ### G. Runtime abstraction hardening
 
-- [ ] Ensure all handlers depend only on `GepaRuntime`, not concrete runtime type.
+- [x] Ensure all handlers depend only on `GepaRuntime`, not concrete runtime type.
 - [ ] Add runtime mode config switch (`inprocess` vs `plugin-process`).
 - [ ] Add dual-runtime test harness running shared API contract suite.
 

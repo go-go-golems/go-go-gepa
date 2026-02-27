@@ -41,6 +41,7 @@
 - Added dedicated launcher integration coverage for cancel semantics:
   - cancel while run is in-progress,
   - cancel again on already-terminal run (`commit 1ee7ce3`).
+- Added explicit `GepaRuntime` abstraction and refactored handlers to depend on runtime interface instead of concrete catalog/run service fields (`commit 46efc18`).
 
 ## 2026-02-26
 

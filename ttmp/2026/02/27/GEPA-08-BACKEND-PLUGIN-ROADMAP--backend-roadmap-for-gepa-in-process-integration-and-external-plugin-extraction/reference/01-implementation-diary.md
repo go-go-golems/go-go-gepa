@@ -37,6 +37,10 @@ RelatedFiles:
       Note: Phase-1 internal GEPA BackendModule implementation and handlers.
     - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/run_service.go
       Note: In-memory run manager state machine and cancellation wiring.
+    - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/runtime.go
+      Note: Runtime interface boundary used by handlers.
+    - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/errors.go
+      Note: Shared runtime/domain errors for request handling and adapters.
     - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/catalog.go
       Note: Script discovery/catalog with deterministic IDs.
     - Path: ../../../../../../../go-go-os/go-inventory-chat/cmd/go-go-os-launcher/main.go
@@ -45,7 +49,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T14:06:00-05:00
+LastUpdated: 2026-02-27T14:14:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -546,6 +550,42 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndSc
 ### Commit
 
 - `1ee7ce3` — `tests: cover gepa cancel endpoint for running and terminal runs`
+
+## Step 15: Runtime interface hardening (`GepaRuntime`) for handler decoupling
+
+I introduced a dedicated runtime interface to decouple HTTP handlers from concrete storage/execution internals. This closes one of the phase-2-hardening prerequisites while staying fully compatible with phase-1 behavior.
+
+### What changed
+
+- Added `GepaRuntime` interface:
+  - `ListScripts`, `StartRun`, `GetRun`, `CancelRun`, `ListEvents`.
+- Added `InMemoryRuntime` adapter that composes:
+  - `ScriptCatalog`,
+  - `RunService`.
+- Refactored `Module` to hold `runtime GepaRuntime` only.
+- Added shared runtime errors (`ErrScriptIDRequired`, `ErrUnknownScriptID`) and reused them in request handling.
+
+### Files changed
+
+- `go-go-os/go-inventory-chat/internal/gepa/runtime.go`
+- `go-go-os/go-inventory-chat/internal/gepa/errors.go`
+- `go-go-os/go-inventory-chat/internal/gepa/module.go`
+
+### Validation commands
+
+```bash
+cd go-go-os/go-inventory-chat
+GOWORK=off go test ./internal/gepa ./internal/backendhost -count=1
+GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndScriptsEndpoints|GEPAModule_RunTimelineAndEventsEndpoints|GEPAModule_CancelEndpointRunningAndTerminalRun)$' -count=1
+```
+
+### Result
+
+- Targeted suites passed after refactor.
+
+### Commit
+
+- `46efc18` — `gepa: introduce runtime interface for handler decoupling`
 
 ## Quick reference
 
