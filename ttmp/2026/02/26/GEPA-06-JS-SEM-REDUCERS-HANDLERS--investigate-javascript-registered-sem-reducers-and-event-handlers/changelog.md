@@ -5,6 +5,7 @@
 - Implemented Option C Task 2 in `pinocchio`: startup wiring for `--timeline-js-script` plus loader tests (`f33fb55`).
 - Implemented Option C Task 3 in `pinocchio`: `gpt-5-nano` resolver/runtime validation test (`4b1a649`).
 - Added GEPA-06 ticket-local validation scripts and output captures under `scripts/exp-03-*`.
+- Added dedicated llm.delta projection harness script/output (`scripts/exp-04-*`) and corresponding `pinocchio` integration harness tests.
 - Implemented Option C Task 4 in `pinocchio`: JS runtime contract + troubleshooting docs (`381ffb7`).
 - Follow-up fix in `pinocchio`: removed duplicate `profile-registries` flag registration so `web-chat web-chat --help` and runtime startup path work (`4a87c5f`).
 - Implemented Option C Task 1 in `pinocchio`: added Goja-based JS SEM runtime bridge and committed as `99c2bfd`.

@@ -36,7 +36,7 @@ RelatedFiles:
       Note: Ticket-local prototype for handler/reducer semantics
 ExternalSources: []
 Summary: Chronological investigation log for JS-registered SEM reducers and event handler feasibility across geppetto, pinocchio, and go-go-os.
-LastUpdated: 2026-02-26T19:52:55-05:00
+LastUpdated: 2026-02-26T20:04:25-05:00
 WhatFor: Preserve exact commands, findings, and reasoning trail for follow-up implementation
 WhenToUse: Use when continuing implementation planning for JS reducer/event-handler architecture
 ---
@@ -391,6 +391,46 @@ Result:
 1. Tests passed.
 2. CLI help now loads correctly and includes `--timeline-js-script`.
 3. Commit: `pinocchio` `4a87c5f` (`web-chat: avoid duplicate profile-registries flag`).
+
+---
+
+## 2026-02-26 20:03-20:04 - Added dedicated llm.delta projection harness
+
+### Scope
+
+Added a dedicated integration harness for `pinocchio/cmd/web-chat` to validate real `llm.delta` SEM projection behavior under JS runtime consume modes.
+
+### Implemented tests
+
+1. `TestLLMDeltaProjectionHarness_NonConsumingReducerAddsSideProjection`
+2. `TestLLMDeltaProjectionHarness_ConsumingReducerSuppressesBuiltinDeltaProjection`
+3. `TestLLMDeltaProjectionHarness_HandlerRunsBeforeReducer`
+
+Harness characteristics:
+
+1. Uses a deterministic streaming test engine that emits `start` + `partial` geppetto events.
+2. Flows through real web-chat route stack (`POST /chat/default`, `/api/timeline` polling).
+3. Loads JS runtime script through command loader path (`configureTimelineJSScripts`) from temp file.
+4. Asserts timeline entity outcomes for consume/non-consume semantics and handler ordering.
+
+### Commands
+
+```bash
+go test ./cmd/web-chat -run 'LLMDeltaProjectionHarness' -v
+go test ./cmd/web-chat -run 'TimelineJSScript|LLMDeltaProjectionHarness|GPT5NanoProfile|ProfileResolver'
+go test ./pkg/webchat -run 'JSTimeline|Timeline'
+./scripts/exp-04-run-llm-delta-projection-harness.sh
+```
+
+### Artifacts
+
+1. `scripts/exp-04-run-llm-delta-projection-harness.sh`
+2. `scripts/exp-04-harness-output.txt`
+
+### Result
+
+1. Harness tests passed.
+2. Reproducible ticket script added and executed successfully.
 
 ---
 
