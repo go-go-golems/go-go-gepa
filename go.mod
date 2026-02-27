@@ -8,7 +8,7 @@ require (
 	github.com/go-go-golems/clay v0.4.0
 	github.com/go-go-golems/geppetto v0.9.1
 	github.com/go-go-golems/glazed v1.0.1
-	github.com/go-go-golems/go-go-goja v0.3.0
+	github.com/go-go-golems/go-go-goja v0.4.0
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.34.0
