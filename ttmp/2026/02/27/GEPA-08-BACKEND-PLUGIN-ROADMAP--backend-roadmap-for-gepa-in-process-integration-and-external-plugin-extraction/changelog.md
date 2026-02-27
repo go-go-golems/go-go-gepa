@@ -33,6 +33,11 @@
   - max-concurrent-run enforcement with `429` on limit breach,
   - launcher flags `--gepa-run-timeout-seconds` and `--gepa-max-concurrent-runs`,
   - additional unit/integration coverage (`commit dbe2d60`).
+- Added GEPA event/timeline endpoints and event store:
+  - `GET /api/apps/gepa/runs/{run_id}/events` (SSE with `afterSeq`),
+  - `GET /api/apps/gepa/runs/{run_id}/timeline`,
+  - in-memory ordered `RunEvent` log with terminal events,
+  - targeted launcher integration test for run/events/timeline flow (`commit 36a4765`).
 
 ## 2026-02-26
 

@@ -45,7 +45,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T13:42:00-05:00
+LastUpdated: 2026-02-27T13:58:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -466,6 +466,55 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(OSAppsEndpoint_ListsGEPAMo
 ### Commit
 
 - `dbe2d60` — `gepa: enforce run timeout and concurrency limits`
+
+## Step 13: Run events SSE and timeline projection endpoints
+
+To advance the remaining Part-1 backend API surface, I implemented run event streaming and timeline projection endpoints on top of the in-memory run manager.
+
+### Scope implemented
+
+- `GET /api/apps/gepa/runs/{run_id}/events`
+  - SSE response (`text/event-stream`)
+  - supports replay cursor `afterSeq`
+  - emits `run.started`, terminal event (`run.completed|run.failed|run.canceled`)
+- `GET /api/apps/gepa/runs/{run_id}/timeline`
+  - returns structured timeline projection summary:
+    - `run_id`, `status`, `last_seq`, `last_event`, `event_count`, `counts`, `events`.
+
+### Storage/model changes
+
+- Added `RunEvent` envelope with ordered sequence ids.
+- Added per-run in-memory event log with monotonic `seq`.
+- Appended events from run transitions in the run manager:
+  - start,
+  - complete,
+  - fail(timeout),
+  - cancel.
+
+### Files changed
+
+- `go-go-os/go-inventory-chat/internal/gepa/run_service.go`
+- `go-go-os/go-inventory-chat/internal/gepa/module.go`
+- `go-go-os/go-inventory-chat/internal/gepa/schemas.go`
+- `go-go-os/go-inventory-chat/internal/gepa/module_test.go`
+- `go-go-os/go-inventory-chat/cmd/go-go-os-launcher/main_integration_test.go`
+- `go-go-os/go-inventory-chat/README.md`
+
+### Validation commands
+
+```bash
+cd go-go-os/go-inventory-chat
+GOWORK=off go test ./internal/gepa ./internal/backendhost -count=1
+GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(OSAppsEndpoint_ListsGEPAModuleReflectionMetadata|GEPAModule_ReflectionAndScriptsEndpoints|GEPAModule_RunTimelineAndEventsEndpoints)$' -count=1
+```
+
+### Result
+
+- Targeted tests pass for backendhost/gepa and launcher GEPA integration paths.
+
+### Commit
+
+- `36a4765` — `gepa: add run events stream and timeline endpoints`
 
 ## Quick reference
 

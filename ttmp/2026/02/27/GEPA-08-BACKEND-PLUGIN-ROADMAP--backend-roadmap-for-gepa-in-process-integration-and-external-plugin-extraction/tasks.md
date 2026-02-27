@@ -30,8 +30,8 @@
 - [x] Implement `GET /scripts`.
 - [x] Implement `POST /runs`.
 - [x] Implement `GET /runs/{run_id}`.
-- [ ] Implement `GET /runs/{run_id}/events` (SSE).
-- [ ] Implement `GET /runs/{run_id}/timeline`.
+- [x] Implement `GET /runs/{run_id}/events` (SSE).
+- [x] Implement `GET /runs/{run_id}/timeline`.
 - [x] Implement `POST /runs/{run_id}/cancel`.
 - [x] Add common request validation helpers and canonical error responses.
 - [x] Add API response DTO structs and JSON encoding tests.
@@ -48,13 +48,13 @@
 
 ### D. Event and timeline pipeline
 
-- [ ] Define `RunEvent` normalized envelope type.
+- [x] Define `RunEvent` normalized envelope type.
 - [ ] Implement event translator (`jsbridge.Event` -> `RunEvent`).
-- [ ] Implement in-memory event store with sequence ordering guarantees.
-- [ ] Implement in-memory timeline projection store.
+- [x] Implement in-memory event store with sequence ordering guarantees.
+- [x] Implement in-memory timeline projection store.
 - [ ] Implement SSE fanout hub with subscriber lifecycle management.
-- [ ] Add replay support via `afterSeq` query parameter.
-- [ ] Ensure terminal events always emit once (`completed/failed/canceled`).
+- [x] Add replay support via `afterSeq` query parameter.
+- [x] Ensure terminal events always emit once (`completed/failed/canceled`).
 
 ### E. Testing and verification
 
@@ -64,8 +64,8 @@
 - [ ] Unit test timeline projection merge/upsert behavior.
 - [x] Integration test namespaced route mounting for GEPA module.
 - [x] Integration test `/api/os/apps` includes GEPA capabilities and health.
-- [ ] Integration test start run + SSE stream + terminal status.
-- [ ] Integration test timeline snapshot endpoint reflects streamed events.
+- [x] Integration test start run + SSE stream + terminal status.
+- [x] Integration test timeline snapshot endpoint reflects streamed events.
 - [ ] Integration test cancel endpoint for running and non-running runs.
 - [ ] Regression test legacy alias routes remain unmounted.
 
