@@ -46,6 +46,10 @@
   - state transitions to terminal completion,
   - cancel race behavior and single terminal-event guarantee,
   - `afterSeq` replay semantics (`commit 29618ff`).
+- Added a long-form intern onboarding implementation report (10+ page equivalent) with architecture walkthrough, API reference, tutorial examples, debugging playbook, and next-step roadmap:
+  - `design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md`.
+- Uploaded dedicated intern-guide bundle to reMarkable:
+  - `GEPA-08-BACKEND-PLUGIN-ROADMAP-backend-research-2026-02-27-v4-intern-guide.pdf`.
 
 ## 2026-02-26
 

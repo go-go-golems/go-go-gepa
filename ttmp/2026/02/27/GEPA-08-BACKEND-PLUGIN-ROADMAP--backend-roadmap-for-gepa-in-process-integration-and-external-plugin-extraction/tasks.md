@@ -9,9 +9,11 @@
 - [x] Produce detailed backend implementation research document (7+ pages equivalent).
 - [x] Produce detailed unified `BackendModule` reflection + generic external module runtime research document (7+ pages equivalent).
 - [x] Produce Part-1-only internal `BackendModule` integration design doc (excluding generic runtime/event protocol).
+- [x] Produce long-form intern-friendly implementation report (10+ pages equivalent) with API reference and tutorials.
 - [x] Run `docmgr doctor` validation for the ticket after document updates.
 - [x] Upload ticket bundle to reMarkable and verify cloud listing.
 - [x] Upload separate reflection-focused v3 bundle to reMarkable and verify cloud listing.
+- [x] Upload separate intern-guide-focused v4 bundle to reMarkable and verify cloud listing.
 
 ## Phase 1: In-process GEPA backend module
 
@@ -19,7 +21,7 @@
 
 - [x] Create `internal/gepa/module.go` implementing `backendhost.AppBackendModule`.
 - [x] Define `Manifest()` with `app_id=gepa`, `name=GEPA`, and backend capability list.
-- [x] Add dependency constructor (`NewModuleWithDeps(...)`) with explicit nil checks.
+- [x] Add dependency constructor (`NewModuleWithRuntime(...)`) with explicit nil checks.
 - [x] Register `gepa` module in `cmd/go-go-os-launcher/main.go` module registry.
 - [ ] Ensure lifecycle startup includes GEPA module health validation path.
 - [x] Add module-level health implementation that verifies runtime readiness.

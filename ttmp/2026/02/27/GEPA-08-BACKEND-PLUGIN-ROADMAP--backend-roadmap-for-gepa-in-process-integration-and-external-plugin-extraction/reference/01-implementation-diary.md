@@ -33,6 +33,8 @@ RelatedFiles:
         Primary phase-1/phase-2 roadmap captured in this diary
     - Path: ttmp/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP--backend-roadmap-for-gepa-in-process-integration-and-external-plugin-extraction/design-doc/02-unified-backendmodule-reflection-api-for-generic-external-module-plugins.md
       Note: Unified reflection and generic runtime extension addendum captured in step 8
+    - Path: ttmp/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP--backend-roadmap-for-gepa-in-process-integration-and-external-plugin-extraction/design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md
+      Note: Intern-friendly implementation report and API/tutorial reference created after core phase-1 coding.
     - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/module.go
       Note: Phase-1 internal GEPA BackendModule implementation and handlers.
     - Path: ../../../../../../../go-go-os/go-inventory-chat/internal/gepa/run_service.go
@@ -49,7 +51,7 @@ RelatedFiles:
       Note: Added reflection hints and module reflection endpoint.
 ExternalSources: []
 Summary: Chronological diary for creating the GEPA-08 backend roadmap ticket, research artifact, and delivery package.
-LastUpdated: 2026-02-27T14:22:00-05:00
+LastUpdated: 2026-02-27T14:46:00-05:00
 WhatFor: Preserve exact commands, reasoning, and outputs used to build GEPA-08 documentation.
 WhenToUse: Use when continuing implementation, validating assumptions, or auditing how backend roadmap decisions were made.
 ---
@@ -623,15 +625,82 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndSc
 
 - `29618ff` — `tests: add run-service transition and race coverage`
 
+## Step 17: Intern onboarding report requested (10+ page writeup + reMarkable delivery)
+
+User requested a long-form teaching report that explains:
+
+- what code was implemented,
+- how the architecture works,
+- concrete API references,
+- tutorial examples for new engineers,
+- what next step implementation should target.
+
+### New document created
+
+- `design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md`
+
+### Coverage included in the report
+
+- plain-language architecture walkthrough for intern onboarding,
+- commit-by-commit change narrative,
+- endpoint-by-endpoint API reference,
+- runtime/state/event model explanation,
+- script discovery and identity rules,
+- timeout/concurrency semantics,
+- reflection model and usage,
+- multiple tutorial runbooks (`curl` + test commands),
+- debugging playbook,
+- extension guidance and reviewer checklists,
+- next-step roadmap for real `go-go-gepa` runtime integration.
+
+### Size/depth verification
+
+- line count: `1511`
+- word count: `5094`
+
+### Validation and delivery flow (completed)
+
+Commands executed:
+
+```bash
+docmgr doctor --ticket GEPA-08-BACKEND-PLUGIN-ROADMAP --stale-after 30
+
+remarquee upload bundle --dry-run \
+  index.md \
+  design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md \
+  reference/01-implementation-diary.md \
+  --name "GEPA-08-BACKEND-PLUGIN-ROADMAP-backend-research-2026-02-27-v4-intern-guide" \
+  --remote-dir "/ai/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP" \
+  --toc-depth 2
+
+remarquee upload bundle \
+  index.md \
+  design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md \
+  reference/01-implementation-diary.md \
+  --name "GEPA-08-BACKEND-PLUGIN-ROADMAP-backend-research-2026-02-27-v4-intern-guide" \
+  --remote-dir "/ai/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP" \
+  --toc-depth 2
+
+remarquee cloud ls /ai/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP --long --non-interactive
+```
+
+Result:
+
+- `docmgr doctor` passed.
+- Upload succeeded:
+  - `GEPA-08-BACKEND-PLUGIN-ROADMAP-backend-research-2026-02-27-v4-intern-guide.pdf`.
+- Cloud listing confirms `v1`, `v2`, `v3`, and `v4-intern-guide` artifacts.
+
 ## Quick reference
 
 ## Ticket path
 
 - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP--backend-roadmap-for-gepa-in-process-integration-and-external-plugin-extraction`
 
-## Primary document
+## Primary documents
 
 - `design-doc/01-backend-implementation-research-in-process-gepa-module-and-phase-2-extraction.md`
+- `design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md`
 
 ## Key implementation recommendation
 
@@ -659,5 +728,6 @@ GOWORK=off go test ./cmd/go-go-os-launcher -run 'Test(GEPAModule_ReflectionAndSc
 - `../design-doc/01-backend-implementation-research-in-process-gepa-module-and-phase-2-extraction.md`
 - `../design-doc/02-unified-backendmodule-reflection-api-for-generic-external-module-plugins.md`
 - `../design-doc/03-part-1-internal-backendmodule-integration-only.md`
+- `../design-doc/04-phase-1-implementation-report-and-intern-onboarding-guide.md`
 - `../tasks.md`
 - `../changelog.md`
