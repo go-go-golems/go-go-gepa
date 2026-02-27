@@ -36,7 +36,7 @@ RelatedFiles:
       Note: Ticket-local prototype for handler/reducer semantics
 ExternalSources: []
 Summary: Chronological investigation log for JS-registered SEM reducers and event handler feasibility across geppetto, pinocchio, and go-go-os.
-LastUpdated: 2026-02-26T20:04:25-05:00
+LastUpdated: 2026-02-27T10:20:00-05:00
 WhatFor: Preserve exact commands, findings, and reasoning trail for follow-up implementation
 WhenToUse: Use when continuing implementation planning for JS reducer/event-handler architecture
 ---
@@ -431,6 +431,61 @@ go test ./pkg/webchat -run 'JSTimeline|Timeline'
 
 1. Harness tests passed.
 2. Reproducible ticket script added and executed successfully.
+
+---
+
+## 2026-02-27 09:35-10:20 - Runtime builder alignment in pinocchio + geppetto
+
+### Scope
+
+Implemented follow-up runtime alignment so both systems can share the owned go-go-goja runtime pattern and support co-locating geppetto bindings with custom (Pinocchio-style) timeline bindings in one VM.
+
+### Code changes
+
+1. `pinocchio/pkg/webchat/timeline_js_runtime.go`
+   - moved runtime bootstrap to go-go-goja owned runtime (`engine` factory + owner runner),
+   - switched script execution + reducer/handler dispatch through runner calls,
+   - added explicit `Close(context.Context)` lifecycle.
+2. `pinocchio/pkg/webchat/timeline_registry.go`
+   - runtime clear/set now closes previous runtime if it supports close semantics.
+3. `pinocchio/pkg/webchat/timeline_projector.go`
+   - `llm.delta` now reconstructs cumulative text from prior cached content when cumulative is omitted and only `delta` is present.
+4. `pinocchio/cmd/web-chat/timeline_js_runtime_loader.go`
+   - runtime loader now passes `require.WithGlobalFolders(...)` for script directory + `node_modules`.
+5. `geppetto/pkg/js/runtime/runtime.go` (new)
+   - added reusable runtime bootstrap helper that returns an owned runtime exposing `require("geppetto")`.
+6. `geppetto/pkg/js/runtime/runtime_test.go` (new)
+   - added coexistence test: geppetto module + custom host binding (`registerSemReducer`) in same VM.
+7. `geppetto/cmd/examples/geppetto-js-lab/main.go`
+   - migrated to shared runtime helper + initializer hook path.
+8. `geppetto/pkg/js/modules/geppetto/module_test.go`
+   - migrated harness bootstrap to builder-owned runtime flow.
+9. `geppetto/pkg/doc/topics/13-js-api-reference.md`
+   - updated host wiring section to document shared runtime bootstrap usage.
+
+### Validation commands and results
+
+```bash
+# pinocchio
+go test ./pkg/webchat -run 'TestJSTimelineRuntime|TestTimelineProjector' -count=1
+go test ./cmd/web-chat -run 'TestConfigureTimelineJSScripts|TestProfileResolver_GPT5NanoProfileIsResolvedForChatRequest|TestLLMDeltaProjectionHarness' -count=1
+
+# geppetto
+go test ./pkg/js/runtime -count=1
+go test ./pkg/js/modules/geppetto -run 'TestTurnsCodecAndHelpers|TestSessionRunWithEchoEngine' -count=1
+go test ./cmd/examples/geppetto-js-lab -count=1
+```
+
+Observed:
+
+1. Pinocchio targeted tests passed.
+2. Geppetto targeted tests passed.
+3. `geppetto-js-lab` package builds (`[no test files]`).
+
+### gpt-5-nano note
+
+1. The resolver/profile-path test for `gpt-5-nano` was re-run and passed (`TestProfileResolver_GPT5NanoProfileIsResolvedForChatRequest`).
+2. A live provider call with `gpt-5-nano` was **not** executed in this environment because `OPENAI_API_KEY` is currently not set.
 
 ---
 

@@ -1,0 +1,16 @@
+# Parsed Fields Summary (profile resolution)
+
+  ai-api-type:
+          profile: gpt-5-nano
+          profileRegistries:
+        source: profiles
+  ai-engine:
+          profile: gpt-5-nano
+          profileRegistries:
+        source: profiles
+  ai-max-response-tokens:
+          profile: gpt-5-nano
+          profileRegistries:
+        source: profiles
+  print-parsed-fields:
+          flag: print-parsed-fields

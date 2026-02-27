@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-27
+
+- Migrated `pinocchio` timeline JS runtime to go-go-goja owned runtime pattern (`engine` + runtime owner runner execution path) and added runtime close lifecycle on registry set/clear.
+- Updated `pinocchio` timeline projection to handle delta-only `llm.delta` frames by reconstructing cumulative content from prior state.
+- Added `geppetto/pkg/js/runtime` helper for builder-owned JS runtime bootstrap with `require("geppetto")` wiring and initializer hooks.
+- Migrated `geppetto` JS lab example + module tests to the builder-owned runtime flow.
+- Added cross-binding runtime test proving geppetto bindings and custom host bindings can coexist in one VM.
+- Re-ran targeted tests in both repos (`pinocchio` webchat + harness tests, `geppetto` JS runtime/module tests) successfully.
+
 ## 2026-02-26
 
 - Implemented Option C Task 2 in `pinocchio`: startup wiring for `--timeline-js-script` plus loader tests (`f33fb55`).

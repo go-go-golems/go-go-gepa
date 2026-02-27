@@ -16,11 +16,17 @@ func applyProfileEnvironment(profile string, parsedValues *values.Values) error 
 	}
 
 	var profileSettings struct {
-		ProfileFile string `glazed:"profile-file"`
+		ProfileFile       string `glazed:"profile-file"`
+		ProfileRegistries string `glazed:"profile-registries"`
 	}
 	if err := parsedValues.DecodeSectionInto(cli.ProfileSettingsSlug, &profileSettings); err == nil {
 		if strings.TrimSpace(profileSettings.ProfileFile) != "" {
 			if err := os.Setenv("PINOCCHIO_PROFILE_FILE", profileSettings.ProfileFile); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(profileSettings.ProfileRegistries) != "" {
+			if err := os.Setenv("PINOCCHIO_PROFILE_REGISTRIES", profileSettings.ProfileRegistries); err != nil {
 				return err
 			}
 		}

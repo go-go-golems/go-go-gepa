@@ -44,6 +44,15 @@
 - [x] Add runbook/troubleshooting notes for bad reducer scripts and fallback behavior.
 - [x] Commit Task 4 as isolated commit (`pinocchio` commit `381ffb7`).
 
+### Task 5 - Runtime builder alignment across pinocchio + geppetto
+
+- [x] Refactor `pinocchio` JS timeline runtime to run on owned go-go-goja runtime lifecycle and runner execution path.
+- [x] Add runtime lifecycle shutdown wiring in timeline registry clear/set flows.
+- [x] Update projection behavior to tolerate delta-only SEM events when cumulative is omitted.
+- [x] Add `geppetto/pkg/js/runtime` helper to bootstrap a runtime that exposes `require(\"geppetto\")` with shared runtime-owner wiring.
+- [x] Migrate geppetto JS lab example and tests to builder-owned runtime flow.
+- [x] Run targeted regression tests in both repos and record outputs in diary.
+
 ## Follow-up (Post-MVP)
 
 - [ ] Decide whether to expose reducer hot-reload vs startup-only behavior.

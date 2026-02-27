@@ -16,13 +16,15 @@ Owners: []
 RelatedFiles:
     - Path: design-doc/01-javascript-registered-sem-reducers-and-event-handler-architecture.md
       Note: Primary investigation and architecture recommendation
+    - Path: design-doc/02-cross-repo-js-sem-runtime-implementation-design.md
+      Note: Cross-repo implementation design for shared runtime/binding model
     - Path: reference/01-investigation-diary.md
       Note: Chronological command log and findings
     - Path: scripts/js-sem-reducer-handler-prototype.js
       Note: Prototype showing handler overwrite vs composable model
 ExternalSources: []
-Summary: 'Clarifies that geppetto already supports JS event handlers for geppetto events, pinocchio owns backend SEM projection in Go, and frontend SEM registration exists in go-go-os app runtime; proposes a staged plan for JS reducer/handler goals.'
-LastUpdated: 2026-02-26T18:30:00-05:00
+Summary: 'Clarifies current layer ownership and now includes implemented builder-owned runtime alignment across pinocchio+geppetto plus coexistence strategy for geppetto + timeline bindings in one VM.'
+LastUpdated: 2026-02-27T10:15:00-05:00
 WhatFor: Define implementation path for JavaScript SEM reducer/handler extensibility
 WhenToUse: Use when planning dynamic event reaction/projection features across geppetto/pinocchio/go-go-os
 ---
