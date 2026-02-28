@@ -310,7 +310,7 @@ This step ensures the ticket is continuation-ready for tomorrow's intern handoff
 
 **Inferred user intent:** Close the loop with durable documentation and delivery artifacts, not just code changes.
 
-**Commit (code):** pending go-go-gepa docs commit (recorded after commit)
+**Commit (code):** `7d6ae78` — \"Add GEPA-28 UI DSL demo ticket docs and diary\"
 
 ### What I did
 
