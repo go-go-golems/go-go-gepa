@@ -23,11 +23,11 @@
 
 ## Phase 3 - Move Launcher Frontend to wesen-os
 
-- [ ] `GEPA10-30` Bootstrap JS workspace in `wesen-os` (`package.json`, `pnpm-workspace.yaml`, root `tsconfig.json`).
-- [ ] `GEPA10-31` Run dependency wiring spike in `wesen-os` to validate cross-repo package resolution strategy.
-- [ ] `GEPA10-32` Move `go-go-os/apps/os-launcher` to `wesen-os/apps/os-launcher` using `mv`.
-- [ ] `GEPA10-33` Rewire launcher dependencies to consume `go-go-os` platform packages and `go-go-app-inventory` app package.
-- [ ] `GEPA10-34` Ensure `wesen-os/apps/os-launcher` runs `dev`, `build`, and tests.
+- [x] `GEPA10-30` Bootstrap JS workspace in `wesen-os` (`package.json`, `pnpm-workspace.yaml`, root `tsconfig.json`).
+- [x] `GEPA10-31` Run dependency wiring spike in `wesen-os` to validate cross-repo package resolution strategy.
+- [x] `GEPA10-32` Move `go-go-os/apps/os-launcher` to `wesen-os/apps/os-launcher` using `mv`.
+- [x] `GEPA10-33` Rewire launcher dependencies to consume `go-go-os` platform packages and `go-go-app-inventory` app package.
+- [x] `GEPA10-34` Ensure `wesen-os/apps/os-launcher` runs `dev`, `build`, and tests.
 
 ## Phase 4 - Dist and Binary Assembly Ownership in wesen-os
 

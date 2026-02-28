@@ -210,6 +210,48 @@ cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
    - Interpretation:
      - Public API boundary is enforced and regression-guarded.
 
+18. 2026-02-27 21:10 ET - `GEPA10-30` + `GEPA10-32` launcher workspace move to `wesen-os`
+   - Commands:
+     - `mkdir -p wesen-os/apps`
+     - `mv go-go-os/apps/os-launcher wesen-os/apps/`
+   - Added workspace bootstrap files in `wesen-os`:
+     - `package.json`
+     - `pnpm-workspace.yaml`
+     - `tsconfig.json`
+   - Interpretation:
+     - Launcher frontend ownership moved physically into composition repo.
+
+19. 2026-02-27 21:20 ET - `GEPA10-31` dependency wiring spike (first pass failures)
+   - `wesen-os` `npm install` passed.
+   - Initial `npm run build`/`npm run test` failed with:
+     - TypeScript `TS6059` rootDir cross-repo import errors.
+     - Module resolution failures for `@hypercard/*` and inventory subpath exports.
+   - Outcome:
+     - Adjusted launcher tsconfig and resolver strategy for cross-repo import mode.
+
+20. 2026-02-27 21:35 ET - `GEPA10-33` cross-repo resolver rewiring
+   - Updated `apps/os-launcher` in `wesen-os`:
+     - `tsconfig.json` path mappings now point to:
+       - `go-go-os/packages/*` (platform packages)
+       - `go-go-os/apps/*` (todo/crm/book-tracker-debug)
+       - `go-go-app-inventory/apps/inventory/src/*`
+     - Added explicit inventory subpath mappings:
+       - `@hypercard/inventory/launcher`
+       - `@hypercard/inventory/reducers`
+     - Replaced old shared Vite helper with local `vite.config.ts` tuned for composition repo aliases/proxy.
+     - Updated `vitest.config.ts` aliases accordingly.
+
+21. 2026-02-27 21:50 ET - `GEPA10-34` validation and test hardening
+   - `wesen-os` build reached green first; tests still failed with invalid hook call (duplicate React instance behavior) and stale fixture paths.
+   - Fixes applied:
+     - Updated launcher host test fixture file paths to moved repo topology (`go-go-os/apps/*` and `go-go-app-inventory/apps/inventory/*`).
+     - Added `resolve.dedupe` and explicit React/ReactDOM/ReactRedux aliasing to `go-go-os/packages/engine/node_modules/*` for single runtime identity during tests.
+   - Final validation:
+     - `wesen-os`: `npm run build` -> pass
+     - `wesen-os`: `npm run test` -> pass (`4 files`, `24 tests`)
+   - Interpretation:
+     - Phase 3 complete with working launcher frontend in `wesen-os`.
+
 ## Related
 
 1. `../design-doc/01-frontend-split-execution-plan-and-package-graph.md`
