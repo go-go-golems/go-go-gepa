@@ -27,7 +27,7 @@ RelatedFiles:
       Note: Primary design deliverable produced from investigation log
 ExternalSources: []
 Summary: Chronological investigation log for GEPA-26 package split analysis, design writing, and publishing.
-LastUpdated: 2026-02-28T15:50:00Z
+LastUpdated: 2026-02-28T21:05:00Z
 WhatFor: Preserve command-level traceability and rationale for future implementation phases.
 WhenToUse: Use when validating assumptions, replaying architecture analysis, or onboarding contributors to split execution.
 ---
@@ -358,6 +358,184 @@ This closes the ticket's document-delivery scope and leaves a reproducible comma
    - `remarquee upload bundle ...`
    - `remarquee cloud ls /ai/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT --long --non-interactive`
 6. Marked ticket task checklist complete.
+
+## Step 6: Execute hard-cut runtime split in go-go-os (no compatibility wrappers)
+
+I executed the implementation phase as a hard cut. The goal was to make `engine` runtime-agnostic and move all HyperCard/plugin runtime ownership into a dedicated `@hypercard/hypercard-runtime` package.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Create tasks to execute tis plan, no need for backwards compatiblity wrappers or the like. Then work on the tasks one by one, committing at appropriate intervals, keeping a detailed diary. Upload the diary to remarkable once all done."
+
+**Assistant interpretation:** implement the split directly without shims, keep implementation traceability, and commit logically.
+
+**Inferred user intent:** ship the package extraction now, not just plan it.
+
+### What I did
+
+1. Created `packages/hypercard-runtime` and moved source ownership:
+   - moved `plugin-runtime/*`
+   - moved `features/pluginCardRuntime/*`
+   - moved `hypercard/*`
+   - moved runtime host files previously under shell windowing:
+     - `PluginCardRenderer.tsx`
+     - `PluginCardSessionHost.tsx`
+     - `pluginIntentRouting.ts`
+     - fixtures + runtime host story/test
+2. Added package wiring:
+   - `packages/hypercard-runtime/package.json`
+   - `packages/hypercard-runtime/tsconfig.json`
+   - `packages/hypercard-runtime/src/index.ts`
+   - root `tsconfig.json` project references updated
+   - root package scripts include runtime package in build/test flow
+3. Moved `createAppStore` from engine into runtime package:
+   - new `packages/hypercard-runtime/src/app/createAppStore.ts`
+   - exported from runtime index
+   - removed from engine app barrel
+4. Removed runtime ownership from engine:
+   - dropped engine exports of `plugin-runtime`, `hypercard`, `features/pluginCardRuntime`
+   - removed `@hypercard/engine` export path `./desktop-hypercard-adapter`
+   - deleted engine adapter files:
+     - `src/desktop-hypercard-adapter.ts`
+     - `src/desktop/adapters/hypercard.ts`
+     - `src/desktop/adapters/index.ts`
+   - removed hypercard default adapter from desktop shell defaults
+   - removed runtime host re-exports from engine windowing index
+5. Reworked chat module ownership boundary:
+   - engine `registerChatModules.ts` now owns default sem/renderer registration only
+   - runtime package adds `registerHypercardChatModules.ts` to register HyperCard timeline module via engine extension API
+6. Updated consumers in go-go-os:
+   - apps `todo`, `crm`, `book-tracker-debug`: `PluginCardSessionHost` imports now from `@hypercard/hypercard-runtime`
+   - app stores now use runtime `createAppStore`
+   - `apps-browser` now imports runtime reducers from runtime package
+   - `hypercard-tools` now imports editor runtime APIs from runtime package
+   - `desktop-os` launcher store now uses runtime `createAppStore`
+   - updated package.json and tsconfig paths/references for all touched apps/packages
+7. Moved/adjusted tests:
+   - moved `plugin-card-runtime.test.ts` and `plugin-intent-routing.test.ts` from engine to runtime package
+   - patched runtime timeline tests to use new chat module registration split
+   - constrained runtime test script to `vitest run src` to avoid `dist/` test pickup
+8. Dependency and workspace refresh:
+   - ran `pnpm install` in `go-go-os`
+
+### Why
+
+1. Engine needed a clean dependency direction (`hypercard-runtime -> engine`, not both ways).
+2. Runtime/shell host files were semantically runtime domain and blocked package isolation while living under engine windowing.
+3. Existing app imports required direct rewiring to avoid relying on removed engine exports.
+
+### What worked
+
+1. `npm run typecheck` (go-go-os root) passes after cutover.
+2. `npx vitest run` in `packages/engine` passes.
+3. `npm run test -w packages/hypercard-runtime` passes.
+4. `npm run test -w packages/desktop-os` passes.
+
+### What didn't work
+
+1. `npm run test` at go-go-os root still fails due pre-existing Storybook taxonomy errors in `apps/apps-browser` (unrelated to this runtime split).
+2. Early import rewrite pass accidentally produced `'/engine'` and `@hypercard@hypercard/engine` strings; I fixed these with targeted replacements and file-by-file verification.
+3. One runtime timeline test assumed suggestion projection existed; current behavior keeps it disabled by default, so I updated the test expectation.
+
+### What I learned
+
+1. Runtime ownership extraction is mechanically straightforward once `createAppStore` moves with reducers/middleware.
+2. Engine can remain runtime-agnostic while still supporting extension registration via chat module bootstrap API.
+3. Test suites were the fastest way to discover ownership leaks and bad path rewrites during the cut.
+
+### What was tricky to build
+
+1. Avoiding dependency-cycle regressions while preserving runtime chat-module registration.
+2. Ensuring renamed/moved test files still resolve correct module owners after path changes.
+
+### What warrants a second pair of eyes
+
+1. Long-term location/ownership of runtime-themed stories that still conceptually belong to runtime but may be categorized under existing taxonomy conventions.
+2. Whether engine package test command should continue to run global taxonomy checks that include app story paths outside package scope.
+
+### What should be done in the future
+
+1. Add explicit boundary linting between `engine` and `hypercard-runtime`.
+2. Consider a dedicated shared package for cross-cutting runtime-agnostic chat/state helpers if additional splits occur.
+
+### Code review instructions
+
+1. Validate package boundary files first:
+   - `go-go-os/packages/engine/src/index.ts`
+   - `go-go-os/packages/hypercard-runtime/src/index.ts`
+   - `go-go-os/packages/engine/package.json`
+   - `go-go-os/packages/hypercard-runtime/package.json`
+2. Validate shell/runtime host boundary:
+   - `go-go-os/packages/engine/src/components/shell/windowing/defaultWindowContentAdapters.tsx`
+   - `go-go-os/packages/hypercard-runtime/src/runtime-host/PluginCardSessionHost.tsx`
+3. Validate app rewiring:
+   - `go-go-os/apps/todo/src/launcher/module.tsx`
+   - `go-go-os/apps/crm/src/launcher/module.tsx`
+   - `go-go-os/apps/book-tracker-debug/src/launcher/module.tsx`
+   - `go-go-os/apps/hypercard-tools/src/launcher/module.tsx`
+4. Re-run:
+   - `npm run typecheck` in go-go-os
+   - `npx vitest run` in `go-go-os/packages/engine`
+   - `npm run test -w packages/hypercard-runtime`
+   - `npm run test -w packages/desktop-os`
+
+### Technical details
+
+1. Main implementation commit (go-go-os):
+   - `5f564f4` — `refactor: split hypercard runtime into dedicated package`
+
+## Step 7: Rewire go-go-app-arc-agi-3 to new runtime package
+
+I updated the ARC app package to stop importing removed engine runtime exports and consume `@hypercard/hypercard-runtime` instead.
+
+### What I did
+
+1. Replaced launcher host import:
+   - `PluginCardSessionHost` from `@hypercard/hypercard-runtime`
+2. Rewired app store reducers:
+   - `pluginCardRuntimeReducer` and `hypercardArtifactsReducer` from runtime package
+3. Rewired bridge imports:
+   - runtime intent selectors/actions and authorization now from runtime package
+   - kept `showToast` from engine
+4. Updated app package wiring:
+   - added runtime dependency in `apps/arc-agi-player/package.json`
+   - added tsconfig path mapping for `@hypercard/hypercard-runtime`
+
+### What worked
+
+1. Import ownership is now aligned with the new package boundary.
+
+### What didn't work
+
+1. Local install/typecheck inside `apps/arc-agi-player` is not directly runnable as a standalone workspace:
+   - `npm install` fails on `workspace:*` (pre-existing workspace topology issue)
+   - direct `tsc` check reports many pre-existing dependency/rootDir/environment issues not specific to this import rewrite
+
+### Technical details
+
+1. ARC app integration commit:
+   - `c86ea5e` — `refactor: rewire arc-agi-player to hypercard-runtime package`
+
+## Step 8: Publish updated implementation diary bundle to reMarkable
+
+After implementation commits and ticket doc updates, I re-published the GEPA-26 bundle so the intern-facing materials now include the execution diary and commit-linked changelog.
+
+### What I did
+
+1. Ran upload dry-run:
+   - `remarquee upload bundle <ticket-dir> --remote-dir /ai/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT --name GEPA-26-runtime-split-implementation-diary-update --dry-run`
+2. Ran real upload:
+   - `remarquee upload bundle <ticket-dir> --remote-dir /ai/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT --name GEPA-26-runtime-split-implementation-diary-update`
+3. Verified remote listing:
+   - `remarquee cloud ls /ai/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT --long --non-interactive`
+
+### Result
+
+1. Upload succeeded:
+   - `OK: uploaded GEPA-26-runtime-split-implementation-diary-update.pdf -> /ai/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT`
+2. Remote folder contains:
+   - `GEPA-26 HyperCard Runtime Split Design`
+   - `GEPA-26-runtime-split-implementation-diary-update`
 
 ### Why
 

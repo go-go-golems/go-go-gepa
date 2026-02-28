@@ -28,3 +28,15 @@
 - [x] Update changelog with completion summary
 - [x] Run `docmgr doctor --ticket GEPA-26-HYPERCARD-RUNTIME-SPLIT --stale-after 30`
 - [x] Upload final bundle to reMarkable and verify remote listing
+
+## Implementation hard-cut execution (no compatibility wrappers)
+
+- [x] Create new `packages/hypercard-runtime` package and move runtime/hypercard source into it
+- [x] Remove runtime/hypercard exports from `@hypercard/engine` and keep engine focused on desktop/shell/widgets
+- [x] Move runtime host/renderer/intent routing out of engine windowing and expose from `@hypercard/hypercard-runtime`
+- [x] Update `go-go-os` apps and package wiring to import runtime APIs from new package
+- [x] Update `go-go-app-arc-agi-3` imports and package wiring to new runtime package
+- [x] Update/relocate affected tests and stories to match new package boundaries
+- [x] Run typecheck/tests for touched packages and document failures precisely if any
+- [x] Update GEPA-26 diary and changelog per execution step with commit hashes
+- [x] Upload updated GEPA-26 diary bundle to reMarkable after implementation completes
