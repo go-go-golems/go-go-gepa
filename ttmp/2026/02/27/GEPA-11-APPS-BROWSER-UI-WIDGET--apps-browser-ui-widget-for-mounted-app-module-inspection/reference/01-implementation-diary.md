@@ -822,3 +822,39 @@ After testing in `localhost:5173`, schema fetches returned the launcher HTML doc
 
 - File changed:
   - `wesen-os/apps/os-launcher/vite.config.ts`
+
+## Step 12: Show schemas at bottom of method info panel
+
+Added schema previews directly inside API method detail view so users can inspect method + related request/response/error schemas in one panel.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Also show the schemas at the bottom of the method info panel"
+
+**Assistant interpretation:** Extend `APIDetail` to include schema blocks beneath method metadata fields.
+
+**Inferred user intent:** Reduce click churn between API list and schema list by co-locating method contract details.
+
+### What I did
+
+- Updated `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`:
+  - Extended `APIDetail` signature to receive reflection schema list.
+  - Added `APISchemaPreview` subcomponent for request/response/error schema slots.
+  - Added fallback schema URL resolution and schema auto-fetch behavior per slot.
+  - Added inline retry and error state per schema block.
+  - Kept existing method summary/tags/schema-id fields, then appended schema previews.
+- Updated styles in `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`:
+  - Added section title and schema block styling for API detail footer area.
+- Validation:
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)
+
+### Why
+
+- API method panels already list schema IDs; showing full schema payloads in the same panel makes the inspector usable as a full contract viewer.
+
+### Technical details
+
+- Files changed:
+  - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
+  - `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`

@@ -36,3 +36,6 @@
 - Fixed `wesen-os` frontend dev proxy for generic module routes:
   - added `/api/apps` proxy in `apps/os-launcher/vite.config.ts`
   - resolves schema-fetch responses returning `index.html` instead of JSON
+- Extended API method detail panel:
+  - shows request/response/error schema blocks at the bottom of method info
+  - each block auto-fetches and renders full schema payload (with retry/error state)
