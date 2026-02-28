@@ -46,3 +46,26 @@ Fixed ARC HyperCard "Create Session" stuck state (`requested` with no HTTP call)
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Queue consumer that executes `/api/apps/arc-agi/*` requests for pending runtime domain intents
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/launcher/module.tsx — Mount ARC pending-intent host for demo card windows
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/reference/01-implementation-diary.md — Diary entry with root cause, validation commands, and commit reference
+
+
+## 2026-02-28
+
+Fixed ARC demo post-session flow where reset/action remained blocked after successful session creation.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Avoid overwriting `arcGameId` with `undefined` in create-session success patches
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts — Keep middleware-side runtime patch semantics aligned
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/pluginBundle.ts — Add game picker input/quick buttons and clearer precondition messaging in demo card
+
+
+## 2026-02-28
+
+Replaced hardcoded ARC game IDs in HyperCard demo with dynamic backend discovery.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/contracts.ts — Added `list-games` command op to ARC command contract
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Execute `list-games` via `/api/apps/arc-agi/games` in launcher card path and persist `arcAvailableGames`
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts — Mirror `list-games` execution support in app middleware path
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/pluginBundle.ts — Add `Load Games` action and render dynamic game buttons from runtime session state

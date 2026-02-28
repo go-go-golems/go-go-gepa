@@ -55,6 +55,8 @@
 - [x] 5.3 Implement handlers for create-session/reset/perform-action/load-timeline
 - [x] 5.4 Add request id generation in card handlers
 - [x] 5.5 Render status/session/game/error text in card UI
+- [x] 5.6 Add demo-card game selection controls (input + quick picks) and explicit precondition messaging
+- [x] 5.7 Replace hardcoded game IDs with dynamic list loading from `/api/apps/arc-agi/games`
 
 ## Launcher UX Requirement
 

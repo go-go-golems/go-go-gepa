@@ -22,7 +22,7 @@ RelatedFiles:
       Note: Folder launch behavior with React + HyperCard entrypoints
 ExternalSources: []
 Summary: Chronological implementation diary for GEPA-23 execution, including boundary pivot, commits, tests, and remaining work.
-LastUpdated: 2026-02-28T01:27:00-05:00
+LastUpdated: 2026-02-28T01:36:00-05:00
 WhatFor: Preserve exact execution trace for intern handoff and review.
 WhenToUse: Use when auditing implementation decisions and reproducing validation results.
 ---
@@ -179,3 +179,65 @@ Validation:
 Commit:
 
 1. `4610f75` - `fix(arc): execute queued card intents in launcher card windows`
+
+## 2026-02-28 01:31 - Session created but action/reset still blocked
+
+Bug report received:
+
+1. `Create Session` now succeeds and `session_id` is visible.
+2. Action/reset buttons still report precondition failure.
+
+Root cause:
+
+1. `create-session` response returns `session_id` only (no `game_id`), which is expected for current backend routes.
+2. Runtime success patch wrote `arcGameId: undefined`, because patch payload always included `arcGameId` key.
+3. `patch` action uses `Object.assign`, so `undefined` overwrote previously selected game id.
+4. Card guards required both `sessionId` and `gameId`, so reset/action paths stayed blocked.
+
+Fixes applied (`go-go-app-arc-agi-3`):
+
+1. Added conditional runtime success patch builders in both:
+   - `bridge/ArcPendingIntentEffectHost.tsx`
+   - `bridge/middleware.ts`
+   so `arcGameId`/`arcSessionId` are only patched when defined.
+2. Updated demo card UX in `domain/pluginBundle.ts`:
+   - added editable `Game ID` input,
+   - added quick-select buttons (`bt11`, `vc33`, `ft09`, `ls20`),
+   - defaulted initial `arcGameId` to `bt11`,
+   - improved precondition toasts to distinguish missing session vs missing game id.
+
+Validation:
+
+1. `npm run test -w apps/os-launcher -- launcherHost` -> pass (17 tests).
+2. `npm run build -w apps/os-launcher` -> pass.
+
+Commit:
+
+1. `5da5329` - `fix(arc-demo): preserve game id and add card game picker`
+
+## 2026-02-28 01:35 - Dynamic game list requirement (no hardcoded IDs)
+
+Requirement update:
+
+1. Game IDs must be discovered dynamically from backend (`/api/apps/arc-agi/games`), not hardcoded in card UI.
+
+Implementation:
+
+1. Added new ARC runtime command op: `list-games`.
+2. Added bridge execution mapping for `list-games` in both execution paths:
+   - `ArcPendingIntentEffectHost` (launcher-store card windows),
+   - `createArcBridgeMiddleware` (app-local store path).
+3. Added runtime success patch support to persist discovered IDs as `arcAvailableGames` in card `sessionState`.
+4. Updated demo card:
+   - new `Load Games` button dispatching `list-games`,
+   - dynamic game buttons rendered from `arcAvailableGames`,
+   - freeform `Game ID` input retained for explicit override.
+
+Validation:
+
+1. `npm run test -w apps/os-launcher -- launcherHost` -> pass (17 tests).
+2. `npm run build -w apps/os-launcher` -> pass.
+
+Commit:
+
+1. `096f8f8` - `feat(arc-demo): load game ids dynamically for card sessions`
