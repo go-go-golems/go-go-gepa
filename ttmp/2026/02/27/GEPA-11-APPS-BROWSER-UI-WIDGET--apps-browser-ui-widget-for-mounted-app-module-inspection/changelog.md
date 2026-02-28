@@ -30,3 +30,9 @@
   - Added `getSchemaDocument` RTK Query endpoint for schema URI fetch.
   - Replaced static placeholder text with actionable fetch button and inline error handling.
   - Added fallback URI resolution (`/api/apps/{appId}/schemas/{schemaId}`) when reflection schema URI is missing.
+- Refined schema behavior after runtime verification:
+  - schema detail now auto-fetches full payload on schema selection
+  - manual retry button remains available (`Fetch schema again`)
+- Fixed `wesen-os` frontend dev proxy for generic module routes:
+  - added `/api/apps` proxy in `apps/os-launcher/vite.config.ts`
+  - resolves schema-fetch responses returning `index.html` instead of JSON

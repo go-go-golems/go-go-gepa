@@ -784,3 +784,41 @@ Implemented the previously static schema placeholder so users can fetch the full
 - Files changed in this step:
   - `go-go-os/apps/apps-browser/src/api/appsApi.ts`
   - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
+
+## Step 11: Fix dev proxy for schema fetch (HTML fallback issue)
+
+After testing in `localhost:5173`, schema fetches returned the launcher HTML document instead of JSON schema payload. The screenshot showed Vite-injected HTML (`/@react-refresh`, `/@vite/client`), which indicates proxy miss and SPA fallback.
+
+### Prompt Context
+
+**User prompt (verbatim):** "do we need to forward the API? don't we blanket this?"
+
+**Assistant interpretation:** Investigate and fix frontend dev proxy routing for generic module API paths.
+
+**Inferred user intent:** Ensure schema fetch requests actually hit backend module routes during local dev.
+
+### What I did
+
+- Inspected `wesen-os/apps/os-launcher/vite.config.ts`.
+- Confirmed existing proxy only covered:
+  - `/api/os/apps`
+  - inventory-specific subpaths (`/api/apps/inventory/...`)
+- Added blanket generic proxy:
+  - `/api/apps` -> backend target (`INVENTORY_CHAT_BACKEND`, default `http://127.0.0.1:8091`)
+  - with `ws: true` and `changeOrigin: true`
+- Re-ran `npm run build -w apps/os-launcher` (pass).
+
+### Why
+
+- Apps Browser schema fetch uses module-scoped routes such as:
+  - `/api/apps/gepa/schemas/{schemaId}`
+- Without generic `/api/apps` proxy, Vite dev server serves `index.html` fallback for unknown paths.
+
+### What worked
+
+- Proxy coverage now includes all module APIs under `/api/apps/*`, not only inventory-specific ones.
+
+### Technical details
+
+- File changed:
+  - `wesen-os/apps/os-launcher/vite.config.ts`
