@@ -99,3 +99,4 @@
 - [x] `GEPA11-144` Add/extend launcher host tests in `wesen-os` to lock command routing and window payloads.
 - [x] `GEPA11-145` Run integration validation (`test`, `typecheck`, `build`) for `wesen-os/apps/os-launcher`.
 - [x] `GEPA11-146` Backfill GEPA-11 diary with prior integration commits and current interaction changes.
+- [x] `GEPA11-147` Implement schema detail fetch action (`Fetch from ... to view the full schema as well`) with on-demand RTK Query loading and fallback endpoint resolution.

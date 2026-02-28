@@ -26,3 +26,7 @@
   - `npm run test -w apps/os-launcher` (pass)
   - `npm run typecheck -w apps/os-launcher` (pass)
   - `npm run build -w apps/os-launcher` (pass)
+- Implemented schema-detail on-demand fetching in Apps Browser:
+  - Added `getSchemaDocument` RTK Query endpoint for schema URI fetch.
+  - Replaced static placeholder text with actionable fetch button and inline error handling.
+  - Added fallback URI resolution (`/api/apps/{appId}/schemas/{schemaId}`) when reflection schema URI is missing.

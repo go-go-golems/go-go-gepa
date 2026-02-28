@@ -725,3 +725,62 @@ This step implements the missing behavior in the mounted apps list: double-click
   - `go-go-os/apps/apps-browser/src/components/AppsFolderWindow.tsx`
   - `go-go-os/apps/apps-browser/src/launcher/module.tsx`
   - `wesen-os/apps/os-launcher/src/__tests__/launcherHost.test.tsx`
+
+## Step 10: Schema detail "Fetch from ... to view the full schema as well"
+
+Implemented the previously static schema placeholder so users can fetch the full schema document on demand directly from the detail panel.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Implement the \"Fetch from ... to view the ful lschema as well\""
+
+**Assistant interpretation:** Replace passive schema placeholder text with an actionable fetch flow that loads and displays full schema payloads.
+
+**Inferred user intent:** Keep the existing schema browsing UI but allow deeper inspection without leaving the app.
+
+### What I did
+
+- Updated `go-go-os/apps/apps-browser/src/api/appsApi.ts`:
+  - Added RTK Query endpoint `getSchemaDocument`.
+  - Endpoint accepts any schema URL and parses JSON or text response via custom `responseHandler`.
+  - Exported `useLazyGetSchemaDocumentQuery`.
+- Updated `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`:
+  - `SchemaDetail` now receives `appId`.
+  - Added fallback URL when reflection omits URI:
+    - `/api/apps/{appId}/schemas/{encodeURIComponent(schema.id)}`
+  - Replaced placeholder-only state with:
+    - `Fetch schema` button
+    - loading label while request is in-flight
+    - inline error display on failure
+  - Once fetched, full schema is rendered in the existing code block area.
+  - Embedded schemas still render immediately without fetching.
+- Re-ran integrated validation from `wesen-os`:
+  - `npm run test -w apps/os-launcher` (pass)
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)
+
+### Why
+
+- Existing copy already suggested fetching full schema, but there was no action path.
+- On-demand fetching avoids unnecessary network calls for every schema row while still enabling deep inspection.
+
+### What worked
+
+- Full schemas now load and display in-place.
+- Fallback URL resolution covers reflection payloads that include schema IDs but no explicit URI.
+- No regressions in launcher integration test/typecheck/build flow.
+
+### What didn't work
+
+- N/A for this step; integration loop stayed green.
+
+### What should be done in the future
+
+- Add a small "Copy URL" action next to the fetch button for debugging/manual fetch workflows.
+- Add a focused UI test that clicks fetch and asserts rendered schema payload.
+
+### Technical details
+
+- Files changed in this step:
+  - `go-go-os/apps/apps-browser/src/api/appsApi.ts`
+  - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
