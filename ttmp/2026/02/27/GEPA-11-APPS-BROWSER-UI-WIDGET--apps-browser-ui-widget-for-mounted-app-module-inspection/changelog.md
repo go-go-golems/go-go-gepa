@@ -42,3 +42,9 @@
 - Updated schema previews for readability:
   - schema sections are folded/collapsed by default
   - payload rendering now uses YAML + shared syntax highlighting (`SyntaxHighlight`, `toYaml`) like debug windows
+- Added documentation visibility in frontend:
+  - `Get Info` reflection panel now lists `docs` entries from reflection
+  - module detail panel now shows a `Documentation` section
+- Added Module Browser right-click support on module rows:
+  - context actions now available directly in Module Browser module list (`Open in Browser`, `Get Info`, `Open Health Dashboard`, `Launch App`)
+- Expanded `ReflectionDocLink` frontend typing to include `path` and `description` fields from backend contract.

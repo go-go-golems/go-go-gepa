@@ -104,3 +104,5 @@
 - [x] `GEPA11-149` Fix frontend dev proxy for generic `/api/apps/*` so schema fetch routes do not fall through to SPA HTML.
 - [x] `GEPA11-150` Show request/response/error schema previews at the bottom of selected API method detail panel.
 - [x] `GEPA11-151` Fold API schema previews by default and render schema payloads as syntax-highlighted YAML.
+- [x] `GEPA11-152` Surface reflection docs in frontend module/get-info detail views.
+- [x] `GEPA11-153` Add right-click context menu support for Module Browser module rows.

@@ -859,6 +859,58 @@ Added schema previews directly inside API method detail view so users can inspec
   - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
   - `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`
 
+## Step 14: Reflection docs visibility + Module Browser right-click wiring
+
+Addressed two runtime UX gaps called out during manual testing:
+1. reflection docs existed in backend JSON but were not shown in frontend
+2. right-click context actions were available in Mounted Apps icon grid but not in Module Browser module rows
+
+### Prompt Context
+
+**User prompt (verbatim):** "I want each app to be able to rgister its own doc. Where is the documentation section in the frontend, and why do all the right click things not work for GEPA-11?"
+
+**Assistant interpretation:** Explain current behavior and implement missing frontend pieces for docs display and module-row context menu parity.
+
+**Inferred user intent:** Make app-owned docs actually discoverable in the UI and ensure right-click affordances are consistent across Apps Browser surfaces.
+
+### What I did
+
+- Verified runtime evidence:
+  - `GET /api/os/apps/gepa/reflection` includes a populated `docs` array.
+  - `GET /api/os/apps/inventory/reflection` returns `501` (no reflection yet).
+- Updated frontend typing:
+  - `ReflectionDocLink` in `apps-browser` now includes `path` and `description` fields to match backend contract.
+- Added docs visibility in frontend:
+  - `GetInfoWindow` reflection section now renders `Documentation (N)` list when reflection docs exist.
+  - `BrowserDetailPanel` module detail now renders `Documentation` section with URL/path/description.
+- Added Module Browser row context menu support:
+  - `ModuleListPane` now supports `onContextMenuApp`.
+  - `ModuleBrowserWindow` now:
+    - registers per-app context actions with `useRegisterContextActions`
+    - opens desktop context menu on module row right-click
+    - reuses existing command ids (`apps-browser.open-browser`, `apps-browser.get-info`, `apps-browser.open-health`, `app.launch.{appId}`)
+- Validation:
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)
+
+### Why
+
+- The backend already supports per-app docs registration through reflection, so frontend omission was the blocker.
+- Right-click parity between folder and browser surfaces reduces confusion in module inspection workflow.
+
+### Notes
+
+- `Launch App` only works for app IDs that exist as launcher modules (frontend apps). Backend-only modules (like `gepa` today) won’t open a launcher window via `app.launch.*`.
+
+### Technical details
+
+- Files changed:
+  - `go-go-os/apps/apps-browser/src/domain/types.ts`
+  - `go-go-os/apps/apps-browser/src/components/GetInfoWindow.tsx`
+  - `go-go-os/apps/apps-browser/src/components/BrowserColumns.tsx`
+  - `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.tsx`
+  - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
+
 ## Step 13: Fold schema previews by default + YAML syntax highlighting
 
 Adjusted schema preview UX for method detail panel to be collapsed by default and rendered as YAML with shared debug syntax highlighting.
