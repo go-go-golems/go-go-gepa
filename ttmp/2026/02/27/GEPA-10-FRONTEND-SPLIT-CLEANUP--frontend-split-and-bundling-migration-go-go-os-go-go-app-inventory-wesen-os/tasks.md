@@ -39,8 +39,8 @@
 
 ## Phase 5 - Docs, CI, and Handoff
 
-- [ ] `GEPA10-50` Update READMEs across all repos with final ownership boundaries and run instructions.
-- [ ] `GEPA10-51` Add or adjust CI jobs so launcher frontend build runs from `wesen-os`.
-- [ ] `GEPA10-52` Produce final package relationship diagram and startup sequence snippet in the ticket.
-- [ ] `GEPA10-53` Keep detailed migration diary with commands, failures, and resolutions.
-- [ ] `GEPA10-54` Run `docmgr doctor --ticket GEPA-10-FRONTEND-SPLIT-CLEANUP --stale-after 30` and resolve warnings.
+- [x] `GEPA10-50` Update READMEs across all repos with final ownership boundaries and run instructions.
+- [x] `GEPA10-51` Add or adjust CI jobs so launcher frontend build runs from `wesen-os`.
+- [x] `GEPA10-52` Produce final package relationship diagram and startup sequence snippet in the ticket.
+- [x] `GEPA10-53` Keep detailed migration diary with commands, failures, and resolutions.
+- [x] `GEPA10-54` Run `docmgr doctor --ticket GEPA-10-FRONTEND-SPLIT-CLEANUP --stale-after 30` and resolve warnings.

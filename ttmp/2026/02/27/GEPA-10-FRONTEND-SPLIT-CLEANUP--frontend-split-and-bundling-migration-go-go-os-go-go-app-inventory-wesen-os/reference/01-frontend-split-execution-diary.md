@@ -15,7 +15,7 @@ Owners: []
 RelatedFiles: []
 ExternalSources: []
 Summary: "Chronological research and planning diary for GEPA-10 frontend split."
-LastUpdated: 2026-02-27T22:20:00-05:00
+LastUpdated: 2026-02-27T22:50:00-05:00
 WhatFor: "Track implementation-relevant findings, command outputs, and decisions."
 WhenToUse: "Read before executing tasks; append entries during implementation."
 ---
@@ -293,6 +293,36 @@ cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
        - `pattern ./...: directory prefix . does not contain main module or its selected dependencies`
    - Interpretation:
      - Phase 4 complete: launcher build/dist/smoke ownership is in `wesen-os`; `go-go-os` no longer advertises launcher assembly/smoke as local responsibilities.
+
+24. 2026-02-27 22:30 ET - `GEPA10-50` README ownership boundary updates across repos
+   - Updated `go-go-os/README.md`:
+     - now documents platform-only ownership and references launcher/inventory ownership in external repos.
+   - Updated `go-go-app-inventory/README.md`:
+     - now documents inventory domain + frontend package ownership and public package export surface.
+   - Updated `wesen-os/README.md`:
+     - now documents composition ownership, launcher assembly commands, and workspace prerequisites.
+   - Interpretation:
+     - onboarding/readme drift has been removed; newcomers now see the same split boundaries reflected in code and docs.
+
+25. 2026-02-27 22:35 ET - `GEPA10-51` CI ownership adjustments
+   - Updated `go-go-os/.github/workflows/launcher-ci.yml`:
+     - removed launcher app/smoke assumptions,
+     - replaced with platform frontend build/test and backendhost go tests.
+   - Added `wesen-os/.github/workflows/launcher-frontend-ci.yml`:
+     - checks out `go-go-os` + `go-go-app-inventory`,
+     - installs frontend dependencies across repos,
+     - runs launcher frontend build and tests from `wesen-os`.
+   - Implementation note:
+     - go-build/release dependency version pinning is intentionally deferred; this task keeps CI focused on frontend split ownership.
+
+26. 2026-02-27 22:40 ET - `GEPA10-52..54` final ticket handoff doc updates + doctor
+   - Rewrote design doc section flow to represent final architecture rather than pre-migration assumptions.
+   - Added final package graph and runtime initialization sequence snippets.
+   - Ran doctor:
+     - `cd go-go-gepa && docmgr doctor --ticket GEPA-10-FRONTEND-SPLIT-CLEANUP --stale-after 30`
+     - output: `✅ All checks passed`
+   - Interpretation:
+     - phase 5 handoff artifacts are now complete and consistent.
 
 ## Related
 
