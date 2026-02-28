@@ -36,6 +36,6 @@
 - [x] Remove `ui.counter` from proposal and runtime contract
 - [x] Remove `schemaForm`, `rating`, `imageChoice`, and `actionBar` from proposed VM DSL widget surface
 - [x] Update intern-facing design doc to reflect constrained elegant widget set
-- [ ] Implement runtime code changes for `counter` removal (`uiTypes`, `uiSchema`, `PluginCardRenderer`, tests)
-- [ ] Update diary and changelog with per-step commits
-- [ ] Re-run validation (`engine` tests + `docmgr doctor`) and refresh reMarkable upload
+- [x] Implement runtime code changes for `counter` removal (`uiTypes`, `uiSchema`, `PluginCardRenderer`, tests)
+- [x] Update diary and changelog with per-step commits
+- [x] Re-run validation (`engine` tests + `docmgr doctor`) and refresh reMarkable upload
