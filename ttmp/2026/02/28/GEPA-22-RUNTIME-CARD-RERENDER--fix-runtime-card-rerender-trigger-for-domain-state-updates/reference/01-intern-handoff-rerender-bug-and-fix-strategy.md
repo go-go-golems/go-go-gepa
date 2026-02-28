@@ -14,9 +14,9 @@ Owners: []
 RelatedFiles: []
 ExternalSources: []
 Summary: ""
-LastUpdated: 2026-02-28T00:34:01.431398537-05:00
+LastUpdated: 2026-02-28T01:40:00-05:00
 WhatFor: "Give the intern a concise operational map for the rerender bug and the recommended fix path."
-WhenToUse: "Use before starting GEPA-22 implementation."
+WhenToUse: "Use when understanding or extending GEPA-22 rerender invalidation behavior."
 ---
 
 # Intern handoff: rerender bug and fix strategy
@@ -51,9 +51,9 @@ Understand why domain updates can fail to rerender runtime cards and how to impl
 - Add stable projection fingerprint/reference dependency.
 - Include dependency in tree memo invalidation path.
 
-### Not-for-now rule
+### Implementation status
 
-Do not start coding yet. GEPA-22 is prepared but intentionally not started.
+Core GEPA-22 host fix is implemented in `go-go-os` with regression coverage.
 
 ## Usage Examples
 

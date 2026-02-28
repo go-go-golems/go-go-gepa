@@ -17,10 +17,12 @@ RelatedFiles:
     - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-22-RUNTIME-CARD-RERENDER--fix-runtime-card-rerender-trigger-for-domain-state-updates/reference/01-intern-handoff-rerender-bug-and-fix-strategy.md
       Note: Intern-oriented quick handoff and bug explanation
     - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-22-RUNTIME-CARD-RERENDER--fix-runtime-card-rerender-trigger-for-domain-state-updates/tasks.md
-      Note: Granular not-started execution checklist
+      Note: Granular execution checklist with completion status
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-22-RUNTIME-CARD-RERENDER--fix-runtime-card-rerender-trigger-for-domain-state-updates/reference/02-implementation-diary.md
+      Note: Chronological implementation log with commit and validation evidence
 ExternalSources: []
 Summary: ""
-LastUpdated: 2026-02-28T00:34:01.185339049-05:00
+LastUpdated: 2026-02-28T01:40:00-05:00
 WhatFor: Track the planned fix for runtime-card rerender invalidation when domain-only Redux updates do not trigger host recomputation.
 WhenToUse: Use as GEPA-22 entrypoint before and during implementation kickoff.
 ---
@@ -30,18 +32,19 @@ WhenToUse: Use as GEPA-22 entrypoint before and during implementation kickoff.
 
 ## Overview
 
-GEPA-22 captures the fix plan for the rerender gap documented in GEPA-14 intern Q&A.
+GEPA-22 captures and executes the rerender fix for the gap documented in GEPA-14 intern Q&A.
 
-Suggested fix to implement later:
+Implemented fix:
 
 1. explicit domain projection selector subscription,
 2. stable projection fingerprint/reference,
 3. memo dependency wiring in `PluginCardSessionHost` tree computation.
 
-Status for now:
+Current implementation state:
 
-1. planning and tasks are complete,
-2. implementation has not started yet.
+1. core host fix implemented in `go-go-os`,
+2. regression test added and passing,
+3. manual runtime smoke still recommended for final closure.
 
 ## Key Links
 
@@ -52,7 +55,7 @@ Status for now:
 
 Current status: **active**
 
-Execution state: **not started**.
+Execution state: **in progress**.
 
 ## Topics
 
