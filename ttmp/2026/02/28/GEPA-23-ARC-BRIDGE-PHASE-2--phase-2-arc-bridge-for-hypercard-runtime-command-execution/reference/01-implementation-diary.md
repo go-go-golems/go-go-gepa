@@ -16,11 +16,13 @@ RelatedFiles:
       Note: Generic runtime metadata propagation update
     - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts
       Note: ARC command execution middleware
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx
+      Note: Launcher-store queue executor for ARC intents dispatched from HyperCard windows
     - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/launcher/module.tsx
       Note: Folder launch behavior with React + HyperCard entrypoints
 ExternalSources: []
 Summary: Chronological implementation diary for GEPA-23 execution, including boundary pivot, commits, tests, and remaining work.
-LastUpdated: 2026-02-28T01:08:00-05:00
+LastUpdated: 2026-02-28T01:27:00-05:00
 WhatFor: Preserve exact execution trace for intern handoff and review.
 WhenToUse: Use when auditing implementation decisions and reproducing validation results.
 ---
@@ -144,3 +146,36 @@ Validation:
 
 1. `npx vitest run packages/engine/src/__tests__/plugin-intent-routing.test.ts` -> pass.
 2. `npm run test -w apps/os-launcher -- launcherHost` -> pass.
+
+## 2026-02-28 01:24 - Create-session stuck at requested (no HTTP) fix
+
+Bug report received:
+
+1. Runtime card `Create Session` set `requestId`/`status=requested` in card state.
+2. Redux showed `ingestRuntimeIntent` and downstream `arc/command.request`.
+3. No network request followed.
+
+Root cause:
+
+1. ARC command middleware runs in ARC app-local store (`ArcPlayerHost`) only.
+2. HyperCard demo card windows run in launcher/global store path.
+3. Launcher path was dispatching intents but had no ARC command side-effect runner attached.
+
+Fix applied (`go-go-app-arc-agi-3`):
+
+1. Added `ArcPendingIntentEffectHost` which:
+   - reads `pluginCardRuntime.pendingDomainIntents`,
+   - filters `domain=arc` + `actionType=command.request`,
+   - dequeues each processed intent,
+   - executes HTTP requests against `/api/apps/arc-agi/*`,
+   - mirrors status/result back into runtime session state via `ingestRuntimeIntent(session.patch)`.
+2. Mounted `ArcPendingIntentEffectHost` in ARC demo card adapter next to `PluginCardSessionHost` in launcher module.
+
+Validation:
+
+1. `npm run test -w apps/os-launcher -- launcherHost` -> pass (17 tests).
+2. `npm run build -w apps/os-launcher` -> pass.
+
+Commit:
+
+1. `4610f75` - `fix(arc): execute queued card intents in launcher card windows`

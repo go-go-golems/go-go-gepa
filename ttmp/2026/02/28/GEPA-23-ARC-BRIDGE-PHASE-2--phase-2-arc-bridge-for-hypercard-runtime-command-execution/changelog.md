@@ -36,3 +36,13 @@ Fixed ARC demo initial render crash and removed render-time toast dispatch in Pl
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/reference/01-implementation-diary.md — Diary entry documenting root cause and fix commits
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/engine/src/components/shell/windowing/PluginCardSessionHost.tsx — Move toast dispatch out of render path and add render error fallback
 
+
+## 2026-02-28
+
+Fixed ARC HyperCard "Create Session" stuck state (`requested` with no HTTP call) by wiring an ARC pending-intent side-effect host into launcher card windows.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Queue consumer that executes `/api/apps/arc-agi/*` requests for pending runtime domain intents
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/launcher/module.tsx — Mount ARC pending-intent host for demo card windows
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/reference/01-implementation-diary.md — Diary entry with root cause, validation commands, and commit reference

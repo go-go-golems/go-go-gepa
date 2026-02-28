@@ -69,11 +69,12 @@
 ## Validation
 
 - [x] 7.1 Run targeted launcher-host test suite: `npm run test -w apps/os-launcher -- launcherHost`
-- [ ] 7.2 Add ARC bridge middleware unit tests in ARC repo (mocked fetch)
-- [ ] 7.3 Run ARC manual smoke: icon -> folder -> React game window opens
-- [ ] 7.4 Run ARC manual smoke: icon -> folder -> HyperCard demo window opens
-- [ ] 7.5 Run ARC manual smoke: demo card create-session updates status
-- [ ] 7.6 Run ARC manual smoke: demo card action/reset commands complete end-to-end
+- [x] 7.2 Fix launcher-card runtime intent execution gap (pending queue consumed but no ARC side-effect host mounted)
+- [ ] 7.3 Add ARC bridge middleware unit tests in ARC repo (mocked fetch)
+- [ ] 7.4 Run ARC manual smoke: icon -> folder -> React game window opens
+- [ ] 7.5 Run ARC manual smoke: icon -> folder -> HyperCard demo window opens
+- [ ] 7.6 Run ARC manual smoke: demo card create-session updates status
+- [ ] 7.7 Run ARC manual smoke: demo card action/reset commands complete end-to-end
 
 ## Documentation and Handoff
 
