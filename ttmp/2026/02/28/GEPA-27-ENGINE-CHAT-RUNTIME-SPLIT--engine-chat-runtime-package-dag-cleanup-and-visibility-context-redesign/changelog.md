@@ -92,3 +92,8 @@ Uploaded final implementation diaries to reMarkable for both current ticket (GEP
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-27-ENGINE-CHAT-RUNTIME-SPLIT--engine-chat-runtime-package-dag-cleanup-and-visibility-context-redesign/reference/01-investigation-diary-engine-chat-runtime-split-and-visibility-context.md
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-26-HYPERCARD-RUNTIME-SPLIT--split-hypercard-runtime-plugin-architecture-into-dedicated-package-separate-from-desktop-engine/reference/01-investigation-diary-hypercard-runtime-package-split.md
 
+
+## 2026-02-28
+
+Closed: scope implemented (engine/chat/runtime split cleanup delivered).
+

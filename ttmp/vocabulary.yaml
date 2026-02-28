@@ -117,6 +117,10 @@ topics:
       description: Topic slug for go-go-app-arc-agi-3 repository specific investigations.
     - slug: vm
       description: Topic slug for virtual machine/runtime behavior investigations.
+    - slug: demo
+      description: Demo and showcase work
+    - slug: ui-dsl
+      description: HyperCard UI DSL contracts and examples
 docTypes:
     - slug: index
       description: Ticket index

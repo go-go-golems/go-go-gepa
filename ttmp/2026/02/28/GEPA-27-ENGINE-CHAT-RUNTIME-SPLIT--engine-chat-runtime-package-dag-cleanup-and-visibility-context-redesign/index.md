@@ -1,7 +1,7 @@
 ---
 Title: Engine/Chat/Runtime package DAG cleanup and visibility-context redesign
 Ticket: GEPA-27-ENGINE-CHAT-RUNTIME-SPLIT
-Status: active
+Status: complete
 Topics:
     - architecture
     - frontend
@@ -18,10 +18,11 @@ RelatedFiles:
       Note: Chronological diary deliverable
 ExternalSources: []
 Summary: Research and design ticket for clean package DAG across engine, hypercard runtime, and chat runtime with generic visibility-context injection.
-LastUpdated: 2026-02-28T17:02:35-05:00
+LastUpdated: 2026-02-28T18:02:30.609952552-05:00
 WhatFor: Track design and upcoming implementation phases for GEPA-27 package-boundary refactor.
 WhenToUse: Use when planning, implementing, or reviewing the engine/chat/runtime split and story relocation work.
 ---
+
 
 
 # Engine/Chat/Runtime package DAG cleanup and visibility-context redesign
