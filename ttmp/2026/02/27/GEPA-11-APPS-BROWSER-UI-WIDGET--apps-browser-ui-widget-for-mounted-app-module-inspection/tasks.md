@@ -22,3 +22,70 @@
 
 - [x] `GEPA11-30` Run `docmgr doctor --ticket GEPA-11-APPS-BROWSER-UI-WIDGET --stale-after 30` and resolve warnings.
 - [x] `GEPA11-31` Upload final doc bundle to reMarkable with dry-run first and verify cloud listing.
+
+## Phase 5 - Package Scaffold
+
+- [x] `GEPA11-40` Create `go-go-os/apps/apps-browser/` package: `package.json`, `tsconfig.json`, `src/index.ts`.
+- [x] `GEPA11-41` Add MSW + msw-storybook-addon devDependencies; add story glob to `.storybook/main.ts`; wire MSW `initialize()` + `mswLoader` in `.storybook/preview.ts`.
+- [x] `GEPA11-42` Add `apps/apps-browser` to root `tsconfig.json` references.
+
+## Phase 6 - Domain Types, RTK Query API, Selection Slice
+
+- [x] `GEPA11-50` Write `src/domain/types.ts` with `AppManifestDocument`, `ModuleReflectionDocument`, and related interfaces.
+- [x] `GEPA11-51` Write `src/api/appsApi.ts` with RTK Query `createApi`: `getApps` and `getReflection` endpoints.
+- [x] `GEPA11-52` Write `src/features/appsBrowser/appsBrowserSlice.ts` with selection-only state (`selectedAppId`, `selectedApiId`, `selectedSchemaId`).
+- [x] `GEPA11-53` Write `src/app/store.ts` combining engine reducers + appsApi + appsBrowser slice.
+- [x] `GEPA11-54` Write `src/domain/selectors.ts` (sortedApps, summaryStats, crossRefSchemaIds, etc.).
+- [x] `GEPA11-55` Write `src/domain/sorting.ts` (unhealthy-first, required-first, name-asc).
+
+## Phase 7 - MSW Mock Layer
+
+- [x] `GEPA11-60` Write `src/mocks/fixtures/apps.ts` with mock data constants (MOCK_INVENTORY, MOCK_GEPA, MOCK_GEPA_REFLECTION, etc.).
+- [x] `GEPA11-61` Write `src/mocks/msw/createAppsHandlers.ts` handler factory.
+- [x] `GEPA11-62` Write `src/mocks/msw/defaultHandlers.ts` default wiring.
+
+## Phase 8 - AppIcon Component + Stories
+
+- [x] `GEPA11-70` Write `src/components/AppIcon.tsx` + `AppIcon.css`.
+- [x] `GEPA11-71` Write `src/components/AppIcon.stories.tsx` (7 stories: HealthyOptional, HealthyRequired, HealthyReflective, HealthyRequiredReflective, UnhealthyRequired, Selected, IconGrid).
+- [x] `GEPA11-72` Verify stories render in Storybook.
+
+## Phase 9 - AppsFolderWindow + Stories
+
+- [x] `GEPA11-80` Write `src/components/AppsFolderWindow.tsx` + `AppsFolderWindow.css`.
+- [x] `GEPA11-81` Write `src/components/AppsFolderWindow.stories.tsx` (5 stories: Default, WithUnhealthy, ManyModules, Loading, Empty — all MSW-backed).
+- [x] `GEPA11-82` Verify stories render in Storybook. Also fixed MSW setup (mockServiceWorker.js + staticDirs).
+
+## Phase 10 - ModuleBrowserWindow + Stories
+
+- [x] `GEPA11-90` Write `src/components/BrowserColumns.tsx` (ModuleListPane, APIListPane, SchemaListPane).
+- [x] `GEPA11-91` Write `src/components/BrowserDetailPanel.tsx` (ModuleDetail, APIDetail, SchemaDetail, EmptyDetail).
+- [x] `GEPA11-92` Write `src/components/ModuleBrowserWindow.tsx` + `ModuleBrowserWindow.css`.
+- [x] `GEPA11-93` Write `src/components/ModuleBrowserWindow.stories.tsx` (6 stories — MSW-backed).
+- [x] `GEPA11-94` Verify stories render in Storybook.
+
+## Phase 11 - GetInfoWindow + Stories
+
+- [x] `GEPA11-100` Write `src/components/GetInfoWindow.tsx` + `GetInfoWindow.css`.
+- [x] `GEPA11-101` Write `src/components/GetInfoWindow.stories.tsx` (4 stories — MSW-backed).
+- [x] `GEPA11-102` Verify stories render in Storybook.
+
+## Phase 12 - HealthDashboardWindow + Stories
+
+- [x] `GEPA11-110` Write SummaryCards, DegradedBanner, HealthModuleRow as sub-components within `HealthDashboardWindow.tsx`.
+- [x] `GEPA11-111` Write `src/components/HealthDashboardWindow.tsx` + `HealthDashboardWindow.css`.
+- [x] `GEPA11-112` Write `src/components/HealthDashboardWindow.stories.tsx` (4 stories — MSW-backed).
+- [x] `GEPA11-113` Verify stories render in Storybook.
+
+## Phase 13 - Launcher Module + Registration
+
+- [x] `GEPA11-120` Write `src/launcher/module.tsx` (LaunchableAppModule, window adapter, window payload builders).
+- [x] `GEPA11-121` Write `src/launcher/public.ts` exports.
+- [x] `GEPA11-122` Write full-app story `src/app/stories/AppsBrowserApp.stories.tsx` (6 stories).
+
+## Phase 14 - Final Validation
+
+- [x] `GEPA11-130` Run `tsc --build` from go-go-os root — passes clean.
+- [x] `GEPA11-131` Run `biome check` and fix all errors (21 auto-fixes, 1 manual fix).
+- [x] `GEPA11-132` Run Storybook build — passes clean, all stories included.
+- [x] `GEPA11-133` Update diary with implementation notes (Steps 6-7).

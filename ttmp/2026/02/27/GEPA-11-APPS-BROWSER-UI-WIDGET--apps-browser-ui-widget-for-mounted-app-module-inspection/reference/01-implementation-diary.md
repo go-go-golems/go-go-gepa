@@ -412,6 +412,196 @@ I included design doc + diary + task/changelog context in the same bundle so the
 - Upload destination:
   - `/ai/2026/02/27/GEPA-11-APPS-BROWSER-UI-WIDGET`
 
+## Step 6: Frontend implementation — Phases 5-7 (scaffold, domain, mocks)
+
+With the design doc, UI wireframes, and implementation guide complete, I started building the actual `@hypercard/apps-browser` package inside `go-go-os/apps/apps-browser/`.
+
+### Prompt Context
+
+**User prompt (verbatim):** "alright, now create a detailed list of tasks in the ticket to implement it. Then work task by task, commit appropriately, keep a running diary, check off tasks as you go."
+
+**Assistant interpretation:** Execute the implementation guide as concrete code, tracking progress in tasks.md and this diary.
+
+**Inferred user intent:** Ship a working Apps Browser widget with Storybook stories, following the architectural patterns established by CRM/Todo apps.
+
+### What I did
+
+**Phase 5 — Package scaffold:**
+- Created `apps/apps-browser/package.json` with workspace deps (`@hypercard/engine`, `@hypercard/desktop-os`, RTK, React) and dev deps (msw, msw-storybook-addon, TypeScript).
+- Created `tsconfig.json` mirroring CRM's config with paths to desktop-os and engine.
+- Created `src/index.ts` barrel exporting API hooks, slice, and domain types.
+- Added apps-browser story glob and Vite alias to `.storybook/main.ts`.
+- Wired MSW `initialize()` + `mswLoader` in `.storybook/preview.ts`.
+- Added `{ "path": "apps/apps-browser" }` to root `tsconfig.json` references.
+- Ran `pnpm install` (not npm — workspace:* protocol requires pnpm).
+
+**Phase 6 — Domain types, RTK Query, slice, store:**
+- `src/domain/types.ts`: All TypeScript interfaces — `AppManifestDocument`, `ModuleReflectionDocument`, `ReflectionResult` (union with `_unsupported` sentinel for 501 responses), and supporting types.
+- `src/api/appsApi.ts`: RTK Query `createApi` with `getApps` (transforms `{ apps: [...] }` response) and `getReflection` (handles 501 as successful with unsupported sentinel via `validateStatus`).
+- `src/features/appsBrowser/appsBrowserSlice.ts`: Minimal selection state with `selectModule`, `selectApi`, `selectSchema`, `clearSelection` actions.
+- `src/app/store.ts`: Uses `configureStore` directly (not `createAppStore`) because engine's factory doesn't support RTK Query middleware injection. Includes all engine built-in reducers.
+- `src/domain/sorting.ts`: `sortApps()` (unhealthy first, required first, name asc), `computeSummaryStats()`, `hasUnhealthyRequired()`.
+- `src/domain/selectors.ts`: `getCrossRefSchemaIds()`, `findApi()`, `findSchema()`, `isReflectionUnsupported()`.
+
+**Phase 7 — MSW mock layer:**
+- `src/mocks/fixtures/apps.ts`: 7 mock app manifests (MOCK_INVENTORY, MOCK_GEPA, MOCK_AUTH, MOCK_BILLING, MOCK_SCHEDULER, MOCK_TELEMETRY, MOCK_INVENTORY_UNHEALTHY) plus MOCK_GEPA_REFLECTION and MOCK_RUN_REQUEST_SCHEMA.
+- `src/mocks/msw/createAppsHandlers.ts`: Handler factory following pinocchio's pattern — handles `GET /api/os/apps` and `GET /api/os/apps/:appId/reflection` with 404/501 responses.
+- `src/mocks/msw/defaultHandlers.ts`: Default wiring with `createDefaultAppsHandlers()` factory.
+
+### Why
+
+- RTK Query was chosen per user direction (replaces manual fetch + Redux thunks).
+- MSW was chosen per user direction ("wsm is the mock HTTP worker for storybook") to let stories exercise real RTK Query hooks against mock HTTP.
+- Package lives inside go-go-os/apps/ (not separate repo) because it's OS infrastructure UI with no Go backend, heavy engine dependency, and shared Storybook.
+
+### What worked
+
+- pnpm workspace resolution picked up the new package immediately.
+- MSW handler factory pattern from pinocchio translated cleanly to apps-browser endpoints.
+- RTK Query's `validateStatus` + `transformResponse` handled the 501 unsupported-reflection case elegantly.
+
+### What didn't work
+
+- Initially tried `npm install` which failed with `EUNSUPPORTEDPROTOCOL` because `workspace:*` protocol is pnpm-specific. User corrected to use pnpm.
+- `createAppStore` from engine doesn't accept extra middleware, so had to use raw `configureStore`. This is a known limitation noted in the implementation guide.
+
+### What I learned
+
+- The engine's `createAppStore` is designed for plugin-card apps, not RTK Query apps. Future improvement: extend it to accept `apiSlices`.
+- MSW + msw-storybook-addon integration is straightforward: `initialize()` in preview + `mswLoader` + per-story `msw.handlers` parameter.
+
+### What was tricky to build
+
+- The `ReflectionResult` union type needed careful design: RTK Query's `transformResponse` sees 501 as successful (via `validateStatus`), so the sentinel `{ _unsupported: true }` distinguishes it from real data at the type level.
+
+### What warrants a second pair of eyes
+
+- Whether `configureStore` directly (vs extending `createAppStore`) will cause issues when integrating with DesktopShell.
+- Whether the `_unsupported` sentinel pattern is clear enough or should use a discriminated union with explicit `kind` field.
+
+### What should be done in the future
+
+- Extend `createAppStore` to accept `apiSlices` parameter for RTK Query middleware.
+- Add schema endpoint handler to MSW layer when schema viewer is implemented.
+
+### Code review instructions
+
+- Review commit `3748972` on branch `task/add-gepa-optimizer`.
+- Verify type safety in `appsApi.ts` reflection endpoint handling.
+- Verify MSW handlers match actual backend endpoint contracts.
+
+### Technical details
+
+- Committed as: `feat(apps-browser): scaffold package, domain types, RTK Query API, and MSW mocks`
+- 15 files changed, 514 insertions
+
+## Step 7: Frontend implementation — Phases 8-14 (components, launcher, validation)
+
+Continued building all UI components, the launcher module, and ran final validation. All phases now complete.
+
+### Prompt Context
+
+**User prompt (verbatim):** (continuation of Step 6)
+
+**Assistant interpretation:** Complete the remaining implementation phases with proper Storybook coverage.
+
+### What I did
+
+**Phase 8 — AppIcon component:**
+- `AppIcon.tsx`: Button-based icon with badge composition matching wireframes — health dot (top-right), required diamond (top-left), reflection star (bottom-center), module glyph (▦▦ normal, ░░ unhealthy), label with ⚠ prefix when unhealthy.
+- `AppIcon.css`: Using `data-part`/`data-state`/`data-variant` pattern with `--hc-*` CSS variables.
+- 7 Storybook stories covering all badge combinations.
+
+**Phase 9 — AppsFolderWindow:**
+- Toolbar with status summary line (app count, health, required) and refresh button.
+- Sorted icon grid using `useGetAppsQuery()` RTK Query hook.
+- 5 MSW-backed stories: Default, WithUnhealthy, ManyModules, Loading, Empty.
+- Fixed MSW setup: generated `mockServiceWorker.js` in `.storybook/public/`, added `staticDirs` to main config.
+
+**Phase 10 — ModuleBrowserWindow:**
+- Three-column Smalltalk-style browser with cascading selection.
+- `BrowserColumns.tsx`: ModuleListPane (health dot + required/reflection badges), APIListPane (method + path), SchemaListPane (cross-ref ▸ markers).
+- `BrowserDetailPanel.tsx`: Contextual detail rendering — ModuleDetail, APIDetail, SchemaDetail, or empty state.
+- `ReflectionLoader` component for lazy RTK Query fetch of reflection data.
+- 6 MSW-backed stories.
+
+**Phase 11 — GetInfoWindow:**
+- Single-module inspector with sections: Header (large icon + name), General, Health (with error block for unhealthy), Reflection (lazy-loaded APIs + schema chips), Footer ("Open in Browser" action).
+- `GetInfoWindowByAppId.tsx` wrapper for launcher integration (fetches app data from RTK Query by appId).
+- 4 MSW-backed stories.
+
+**Phase 12 — HealthDashboardWindow:**
+- DegradedBanner (warning when required modules unhealthy).
+- SummaryCards (mounted/healthy/required stat boxes with warning styling).
+- HealthModuleRow (auto-expanding error block for unhealthy modules).
+- 4 MSW-backed stories.
+
+**Phase 13 — Launcher module:**
+- `appsBrowserLauncherModule`: Implements `LaunchableAppModule` with manifest, window builders, content adapter.
+- Window payload builders for Folder, Browser, Health, GetInfo windows.
+- Content adapter routes by `appKey` prefix.
+- `AppsBrowserHost` with lazy store creation.
+- Full-app stories showing all window types in frames (6 stories).
+
+**Phase 14 — Final validation:**
+- `tsc --build` passes clean across entire workspace.
+- `biome check` passes (21 auto-fixes + 1 manual fix for redundant `role="button"`).
+- Storybook build passes with all stories included.
+
+### Why
+
+- Each component was built incrementally with immediate typecheck/lint verification to catch issues early.
+- MSW-backed stories ensure RTK Query hooks exercise real HTTP handlers, not manual mocks.
+- The launcher module follows the CRM/Todo LaunchableAppModule pattern exactly for seamless desktop integration.
+
+### What worked
+
+- The `data-part` + CSS variable pattern made consistent theming trivial across all components.
+- RTK Query hooks + MSW handlers gave a realistic development experience in Storybook.
+- The wireframes from `sources/ui.md` mapped directly to component structure — no ambiguity in implementation.
+
+### What didn't work
+
+- MSW Service Worker registration failed initially because `mockServiceWorker.js` wasn't generated in Storybook's public directory. Fixed with `npx msw init .storybook/public --save` and `staticDirs` config.
+- `WindowContent` type doesn't support arbitrary `meta` field, so Get Info windows needed a `GetInfoWindowByAppId` wrapper that looks up app data from RTK Query instead of passing it through window content.
+
+### What I learned
+
+- The go-go-os `WindowContent` interface is deliberately minimal — custom data should live in the app's own store or be fetched on-demand, not smuggled through window payloads.
+- biome's `noUnusedImports` rule is strict but useful — caught several stale imports from development iterations.
+
+### What was tricky to build
+
+- ModuleBrowserWindow's selection cascade required careful state management — selecting a module clears API/schema selections, and the detail panel always shows the "deepest" selected item.
+- The `ReflectionLoader` render-prop pattern was needed because RTK Query hooks can't be called conditionally (only call `useGetReflectionQuery` when a reflective module is selected).
+
+### What warrants a second pair of eyes
+
+- The launcher module's window content adapter uses string-based appKey routing. Consider a more typed approach in a future iteration.
+- The `createAppsBrowserStore` duplicates engine reducer wiring from `createAppStore`. When engine supports RTK Query middleware, consolidate.
+
+### What should be done in the future
+
+- Wire `appsBrowserLauncherModule` into the desktop-os launcher registration (requires touching wesen-os or the os-launcher app).
+- Add context menu support (right-click icon → Get Info, Open in Browser, Copy URL).
+- Add desktop menu contributions (File → Refresh, View → as Folder/Browser/Health Dashboard).
+- Implement schema fetch/view in the browser detail panel.
+- Add keyboard navigation in the browser columns.
+
+### Code review instructions
+
+- Review commits on branch `task/add-gepa-optimizer` (8 commits for phases 5-14).
+- Run `pnpm storybook` and check all stories under Apps/AppsBrowser.
+- Verify `tsc --build` and `biome check` pass clean.
+
+### Technical details
+
+- Total: 26 source files in `apps/apps-browser/src/`
+- Components: AppIcon, AppsFolderWindow, ModuleBrowserWindow (BrowserColumns + BrowserDetailPanel), GetInfoWindow, HealthDashboardWindow
+- Stories: ~30 stories across 6 story files
+- CSS: 5 CSS files using `data-part` + `--hc-*` variables
+- Commits: 8 on `task/add-gepa-optimizer` branch
+
 ## Related
 
 1. `../design-doc/01-apps-browser-ux-and-technical-reference.md`

@@ -103,6 +103,12 @@ topics:
       description: Inventory app repository and module ownership
     - slug: bundling
       description: Frontend asset bundling and dist assembly pipelines
+    - slug: arc-agi
+      description: ARC-AGI environment and integration work
+    - slug: modules
+      description: Backend/frontend module contracts and composition
+    - slug: python
+      description: Python runtime and service integration concerns
 docTypes:
     - slug: index
       description: Ticket index
