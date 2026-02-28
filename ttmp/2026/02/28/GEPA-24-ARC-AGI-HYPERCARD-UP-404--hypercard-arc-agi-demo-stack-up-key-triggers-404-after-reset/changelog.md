@@ -39,3 +39,8 @@ Implemented fix for HyperCard directional-action 404:
 3. backend tests in `client_test.go` validating normalization and upstream request path generation
 4. live tmux validation via repro script confirms lowercase `up` now returns `200` and action `ACTION1`
 5. code committed in `go-go-app-arc-agi-3` as `dea7c2c`
+
+## 2026-02-28
+
+Cleanup: all ticket tasks complete; closing ticket.
+

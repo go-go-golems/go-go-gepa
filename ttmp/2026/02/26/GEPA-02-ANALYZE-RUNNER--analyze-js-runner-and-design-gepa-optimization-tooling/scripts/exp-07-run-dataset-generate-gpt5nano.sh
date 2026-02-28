@@ -17,10 +17,10 @@ rm -f "$DB" "$LOG1" "$LOG2" "$SQL_SUMMARY"
 rm -rf "$OUT1" "$OUT2"
 
 cd "$ROOT"
-export PINOCCHIO_PROFILE_REGISTRIES="$REGISTRY"
 
 go run ./cmd/gepa-runner dataset generate \
   --profile gpt-5-nano \
+  --profile-registries "$REGISTRY" \
   --script "$GENERATOR" \
   --config "$CONFIG" \
   --count 3 \
@@ -30,6 +30,7 @@ go run ./cmd/gepa-runner dataset generate \
 
 go run ./cmd/gepa-runner dataset generate \
   --profile gpt-5-nano \
+  --profile-registries "$REGISTRY" \
   --script "$GENERATOR" \
   --config "$CONFIG" \
   --count 5 \

@@ -27,3 +27,8 @@ Started GEPA-22 implementation and shipped the host-level rerender fix so domain
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/engine/src/components/shell/windowing/PluginCardSessionHost.tsx — Subscribed to projected domains with `useSelector(..., shallowEqual)` and wired projection into global-state rendering path
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/engine/src/components/shell/windowing/PluginCardSessionHost.rerender.test.tsx — Regression test for domain-only rerender invalidation
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-22-RUNTIME-CARD-RERENDER--fix-runtime-card-rerender-trigger-for-domain-state-updates/reference/02-implementation-diary.md — Detailed command-by-command execution diary
+
+## 2026-02-28
+
+Cleanup close requested by owner.
+

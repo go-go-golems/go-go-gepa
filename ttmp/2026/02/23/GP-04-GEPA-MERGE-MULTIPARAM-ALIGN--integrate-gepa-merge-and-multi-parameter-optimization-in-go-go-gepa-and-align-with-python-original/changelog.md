@@ -94,3 +94,8 @@
   - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./cmd/gepa-runner -run TestExampleScriptsLoadAndExposeExpectedHooks -count=1 -v` passed.
   - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
   - `GOWORK=off GOTOOLCHAIN=go1.25.7 go run ./cmd/gepa-runner eval --script ./cmd/gepa-runner/scripts/smoke_noop_optimizer.js --prompt ok` passed.
+
+## 2026-02-28
+
+Cleanup: all ticket tasks complete; closing ticket.
+

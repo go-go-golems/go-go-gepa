@@ -109,6 +109,14 @@ topics:
       description: Backend/frontend module contracts and composition
     - slug: python
       description: Python runtime and service integration concerns
+    - slug: inventory-app
+      description: Inventory application frontend/backend integration and runtime behavior
+    - slug: hypercard
+      description: HyperCard runtime, artifacts, and card interaction architecture
+    - slug: go-go-app-arc-agi-3
+      description: Topic slug for go-go-app-arc-agi-3 repository specific investigations.
+    - slug: vm
+      description: Topic slug for virtual machine/runtime behavior investigations.
 docTypes:
     - slug: index
       description: Ticket index

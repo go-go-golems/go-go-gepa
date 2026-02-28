@@ -1,7 +1,7 @@
 ---
 Title: Pretty up right-click context menus to look macOS-like
 Ticket: GEPA-15-PRETTY-RIGHT-CLICK
-Status: active
+Status: complete
 Topics:
     - frontend
     - ui
@@ -22,10 +22,11 @@ RelatedFiles:
       Note: New CSS tokens for context menu styling
 ExternalSources: []
 Summary: ""
-LastUpdated: 2026-02-27T22:37:39.446317818-05:00
+LastUpdated: 2026-02-28T14:34:15.727846323-05:00
 WhatFor: ""
 WhenToUse: ""
 ---
+
 
 
 # Pretty up right-click context menus to look macOS-like

@@ -1,38 +1,11 @@
 package main
 
 import (
-	"os"
 	"strings"
 
 	"github.com/go-go-golems/glazed/pkg/cli"
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 )
-
-func applyProfileEnvironment(profile string, parsedValues *values.Values) error {
-	if profile != "" {
-		if err := os.Setenv("PINOCCHIO_PROFILE", profile); err != nil {
-			return err
-		}
-	}
-
-	var profileSettings struct {
-		ProfileFile       string `glazed:"profile-file"`
-		ProfileRegistries string `glazed:"profile-registries"`
-	}
-	if err := parsedValues.DecodeSectionInto(cli.ProfileSettingsSlug, &profileSettings); err == nil {
-		if strings.TrimSpace(profileSettings.ProfileFile) != "" {
-			if err := os.Setenv("PINOCCHIO_PROFILE_FILE", profileSettings.ProfileFile); err != nil {
-				return err
-			}
-		}
-		if strings.TrimSpace(profileSettings.ProfileRegistries) != "" {
-			if err := os.Setenv("PINOCCHIO_PROFILE_REGISTRIES", profileSettings.ProfileRegistries); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
 
 func resolvePinocchioProfile(parsedValues *values.Values) (string, error) {
 	var profileSettings struct {

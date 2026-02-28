@@ -1,0 +1,2 @@
+Error: plugin loader: plugin instance.evaluate must be a function
+exit status 1

@@ -48,3 +48,8 @@
 - Added Module Browser right-click support on module rows:
   - context actions now available directly in Module Browser module list (`Open in Browser`, `Get Info`, `Open Health Dashboard`, `Launch App`)
 - Expanded `ReflectionDocLink` frontend typing to include `path` and `description` fields from backend contract.
+
+## 2026-02-28
+
+Cleanup: all ticket tasks complete; closing ticket.
+

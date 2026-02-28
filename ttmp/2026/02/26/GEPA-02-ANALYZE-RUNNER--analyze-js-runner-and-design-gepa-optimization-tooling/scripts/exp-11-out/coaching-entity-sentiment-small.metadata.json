@@ -1,0 +1,13 @@
+{
+  "configApiVersion": "gepa.dataset-generate/v2",
+  "createdAt": "2026-02-26T22:09:00Z",
+  "createdAtMs": 1772143740041,
+  "datasetId": "gepa-dataset-1772143740041498498",
+  "generatedCount": 2,
+  "name": "coaching-entity-sentiment-small",
+  "pluginId": "examples.coaching-entity-sentiment",
+  "pluginName": "Coaching Entity/Sentiment Longitudinal Generator",
+  "pluginRegistryIdentifier": "local.examples",
+  "requestedCount": 2,
+  "seed": 20260226
+}

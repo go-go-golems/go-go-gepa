@@ -1,0 +1,9 @@
+2026-02-26T12:32:45.949968269-05:00 INF Loaded evaluator plugin plugin_id=example.smoke_noop plugin_name="Example: Smoke Noop Optimizer"
+Plugin: Example: Smoke Noop Optimizer (example.smoke_noop)
+Dataset: 2 examples
+Mean score: 1.000000
+Mean objectives:
+{
+  "score": 1
+}
+Wrote report to: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-06-out-report.json

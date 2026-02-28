@@ -1,0 +1,18 @@
+Error: unknown flag: --candidate
+
+  # eval - Evaluate a prompt/candidate on a dataset using a JS evaluator      
+  plugin                                                                      
+                                                                              
+  --------                                                                    
+                                                                              
+  **No examples found!**                                                      
+                                                                              
+  Showing a list of alternatives:                                             
+                                                                              
+  For more help, run: gepa-runner help eval                                   
+                                                                              
+  Run gepa-runner help --ui to open the interactive help TUI.                 
+
+
+Error: unknown flag: --candidate
+exit status 1

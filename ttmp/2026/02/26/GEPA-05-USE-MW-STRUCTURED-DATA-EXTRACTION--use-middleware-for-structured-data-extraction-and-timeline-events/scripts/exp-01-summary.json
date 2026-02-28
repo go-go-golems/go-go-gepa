@@ -1,0 +1,51 @@
+{
+  "case_id": "COACH_CASE_001",
+  "input_path": "/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-11-out/coaching-entity-sentiment-small.jsonl",
+  "output_events_path": "/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-05-USE-MW-STRUCTURED-DATA-EXTRACTION--use-middleware-for-structured-data-extraction-and-timeline-events/scripts/exp-01-events.jsonl",
+  "event_count": 53,
+  "stage_counts": {
+    "pipeline": 2,
+    "entities": 10,
+    "relationships": 9,
+    "discussion_summaries": 8,
+    "timeline": 24
+  },
+  "first_event": {
+    "event_id": "msg-coach_case_001:0001",
+    "event_type": "pipeline.started",
+    "stage": "pipeline",
+    "timestamp": "2026-02-26T22:36:51.656Z",
+    "correlation": {
+      "message_id": "msg-coach_case_001",
+      "session_id": "sess-gepa-05-prototype",
+      "inference_id": "inf-gepa-05-prototype",
+      "turn_id": "turn-gepa-05-prototype"
+    },
+    "payload": {
+      "case_id": "COACH_CASE_001",
+      "source_jsonl": "/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-11-out/coaching-entity-sentiment-small.jsonl",
+      "stage_order": [
+        "entities",
+        "relationships",
+        "discussion_summaries",
+        "timeline"
+      ]
+    }
+  },
+  "last_event": {
+    "event_id": "msg-coach_case_001:0053",
+    "event_type": "pipeline.completed",
+    "stage": "pipeline",
+    "timestamp": "2026-02-26T22:36:51.656Z",
+    "correlation": {
+      "message_id": "msg-coach_case_001",
+      "session_id": "sess-gepa-05-prototype",
+      "inference_id": "inf-gepa-05-prototype",
+      "turn_id": "turn-gepa-05-prototype"
+    },
+    "payload": {
+      "case_id": "COACH_CASE_001",
+      "total_events_emitted": 53
+    }
+  }
+}

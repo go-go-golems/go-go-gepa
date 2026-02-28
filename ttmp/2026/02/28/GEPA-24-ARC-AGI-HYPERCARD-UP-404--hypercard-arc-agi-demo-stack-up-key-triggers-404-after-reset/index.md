@@ -1,7 +1,7 @@
 ---
 Title: HyperCard ARC-AGI demo stack Up key triggers 404 after reset
 Ticket: GEPA-24-ARC-AGI-HYPERCARD-UP-404
-Status: active
+Status: complete
 Topics:
     - arc-agi
     - bug
@@ -23,10 +23,11 @@ RelatedFiles:
       Note: Programmatic repro script for lowercase up 404 vs ACTION1 200 control
 ExternalSources: []
 Summary: Reproduced and analyzed HyperCard demo action 404. Root cause is lowercase directional action tokens sent by demo card, which are forwarded upstream as unsupported /api/cmd/UP style commands.
-LastUpdated: 2026-02-28T18:49:00Z
+LastUpdated: 2026-02-28T14:27:57.287708158-05:00
 WhatFor: Entry point for architecture analysis, investigation diary, and reproducibility assets for the ARC HyperCard Up-key 404 bug.
 WhenToUse: Use when onboarding to this bug, implementing the fix, or validating expected behavior in wesen-os launcher ARC demo stack.
 ---
+
 
 
 # HyperCard ARC-AGI demo stack Up key triggers 404 after reset
