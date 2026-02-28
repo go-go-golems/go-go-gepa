@@ -79,3 +79,114 @@ docmgr doc relate --doc .../design-doc/01-hard-cutover-implementation-plan-...md
 ### Outcome
 
 - Ticket is now ready for execution of Phase B task B1.
+
+## Step 4: Phase B engine hard cutover implementation
+
+Implemented runtime-card-first artifact opening in `go-go-os` and removed template/inventory fallback behavior.
+
+### Files changed
+
+1. `go-go-os/packages/engine/src/hypercard/artifacts/artifactRuntime.ts`
+2. `go-go-os/packages/engine/src/hypercard/artifacts/artifactRuntime.test.ts`
+3. `go-go-os/packages/engine/src/hypercard/timeline/hypercardWidget.tsx`
+4. `go-go-os/packages/engine/src/hypercard/timeline/hypercardCard.tsx`
+
+### Key code changes
+
+1. Removed `templateToCardId` and template icon fallback logic.
+2. `buildArtifactOpenWindowPayload` now returns `undefined` if `runtimeCardId` is missing.
+3. Removed default `stackId: 'inventory'` fallback and replaced with neutral runtime default (`'runtime'`) when unspecified.
+4. Widget timeline renderer no longer uses template-to-card-id for editor routing.
+5. Widget/card Open/Edit controls are now shown only when runtime card id is present.
+
+### Validation commands
+
+```bash
+pnpm exec vitest run \
+  packages/engine/src/hypercard/artifacts/artifactRuntime.test.ts \
+  packages/engine/src/hypercard/timeline/hypercardWidget.test.ts \
+  packages/engine/src/hypercard/timeline/hypercardCard.test.ts
+```
+
+### Validation result
+
+- 3 test files passed.
+- 15 tests passed.
+- No failures.
+
+### Commit
+
+- Repo: `go-go-os`
+- Commit: `46ac219`
+- Message: `GEPA-19: hard-cutover engine artifact opening to runtime-card-first`
+
+## Step 5: Phase C inventory fallback card removal
+
+Removed inventory fallback viewer card metadata and implementations.
+
+### Files changed
+
+1. `go-go-app-inventory/apps/inventory/src/domain/stack.ts`
+2. `go-go-app-inventory/apps/inventory/src/domain/pluginBundle.vm.js`
+
+### Key code changes
+
+1. Removed `reportViewer` and `itemViewer` entries from inventory card metadata.
+2. Removed `reportViewer` and `itemViewer` card render/handler blocks from VM bundle.
+3. Removed now-unused helper functions tied to artifact fallback card rendering.
+
+### Validation commands
+
+```bash
+npm run typecheck
+```
+
+### Validation result
+
+- TypeScript build completed successfully with no errors.
+
+### Commit
+
+- Repo: `go-go-app-inventory`
+- Commit: `5f66b10`
+- Message: `GEPA-19: remove inventory fallback viewer cards for hard cutover`
+
+## Step 6: Progress bookkeeping update
+
+Updated GEPA-19 ticket status artifacts after implementation:
+
+1. Checked off completed Phase B and Phase C tasks in `tasks.md`.
+2. Updated index status checkboxes to reflect implementation completion.
+3. Next: finalize changelog, run doc validation, and commit ticket updates.
+
+## Step 7: Phase D validation and final review
+
+Completed final ticket hygiene and validation checks.
+
+### Commands
+
+```bash
+rg -n "reportViewer|itemViewer|templateToCardId" \
+  go-go-os/packages/engine/src go-go-app-inventory/apps/inventory/src -S
+
+docmgr doctor --ticket GEPA-19-HYPERCARD-CARD-CUTOVER --stale-after 30
+```
+
+### Findings
+
+1. No runtime source files in engine/inventory use `templateToCardId` anymore.
+2. Remaining `reportViewer`/`itemViewer` mentions are in tests/stories and artifact template values, not runtime fallback routing.
+3. `docmgr doctor` reports clean (`✅ All checks passed`).
+
+### Task status
+
+- Marked Phase D tasks complete.
+- Marked all done criteria complete.
+
+### Repo commit summary so far
+
+1. `go-go-gepa` `9c33134` — ticket plan/tasks/diary scaffold.
+2. `go-go-os` `46ac219` — engine hard cutover implementation.
+3. `go-go-app-inventory` `5f66b10` — inventory fallback card removal.
+
+Next step: commit final GEPA-19 ticket progress updates in `go-go-gepa`.
