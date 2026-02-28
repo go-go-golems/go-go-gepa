@@ -25,3 +25,16 @@ Implemented HyperCard Tools UI DSL demo stack (commit 8c79f49), switched launche
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/launcher/module.tsx — Launcher cutover to card-window default
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/wesen-os/apps/os-launcher/src/__tests__/launcherHost.test.tsx — Launch expectation updates for HyperCard Tools
 
+
+## 2026-02-28 - Phase 5 DSL expansion
+
+Extended UI DSL and runtime support with dropdown/selectableTable/gridBoard nodes, added schema coverage tests, expanded HyperCard Tools demos for missing examples, and wired app_hypercard_tools domain reducer for domain-intent demonstrations.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/domain/pluginBundle.vm.js — Expanded demo cards and missing examples
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/launcher/module.tsx — Domain reducer wiring for domain intent demos
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/plugin-runtime/uiSchema.ts — Validation logic for new node kinds
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/plugin-runtime/uiTypes.ts — Added new UI node kinds
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/runtime-host/PluginCardRenderer.tsx — Renderer mapping for dropdown/selectableTable/gridBoard
+

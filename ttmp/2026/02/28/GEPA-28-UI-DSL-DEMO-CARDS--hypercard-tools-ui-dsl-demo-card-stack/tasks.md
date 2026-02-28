@@ -37,3 +37,15 @@
 - [x] Commit go-go-os implementation changes
 - [x] Commit go-go-gepa documentation/task updates
 - [x] Upload final docs bundle (guide + diary) to reMarkable
+
+## Phase 5: DSL and demo coverage expansion (follow-up)
+
+- [x] Extend UI DSL contract with `ui.dropdown`
+- [x] Extend UI DSL contract with `ui.selectableTable`
+- [x] Extend UI DSL contract with `ui.gridBoard`
+- [x] Wire schema validation and runtime renderer support for new node kinds
+- [x] Add HyperCard Tools demo cards for dropdown, selectable table, and grid board
+- [x] Add missing examples: button variants, input placeholder, event-args merge payload
+- [x] Add domain-intent example card and backing app domain reducer wiring
+- [x] Run targeted typecheck/tests for `go-go-os` and `wesen-os`
+- [x] Update GEPA-28 diary/changelog and check off follow-up tasks

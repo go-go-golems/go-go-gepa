@@ -376,3 +376,100 @@ remarquee upload bundle \
   --remote-dir "/ai/2026/02/28/GEPA-28-UI-DSL-DEMO-CARDS" \
   --toc-depth 2
 ```
+
+## Step 5: Expand UI DSL surface and complete missing demo coverage
+
+I implemented the follow-up expansion requested after the demo gap review: added DSL support for dropdown/selectable table/grid board, wired runtime rendering + schema validation, and expanded HyperCard Tools demo cards to cover all missing examples called out in review.
+
+I reused GEPA-28, added explicit Phase 5 tasks in the ticket, and checked each one off after implementation and validation completed.
+
+### Prompt Context
+
+**User prompt (verbatim):** "alright add all of them, reuse the ticket, add tasks, check them off."
+
+**Assistant interpretation:** Reopen GEPA-28 scope for missing examples, extend DSL/runtime where needed, and track completion through new tasks.
+
+**Inferred user intent:** Close the gap between engine widget capabilities and UI DSL demo coverage so the stack is truly comprehensive.
+
+**Commit (code):** `d55379f` — "Extend UI DSL with dropdown/selectableTable/gridBoard"
+
+### What I did
+
+- Added Phase 5 follow-up tasks to GEPA-28 and tracked execution in `tasks.md`.
+- Extended UI DSL type contract with new node kinds:
+  - `dropdown`
+  - `selectableTable`
+  - `gridBoard`
+- Extended schema validation with supported/invalid-case tests.
+- Extended VM bootstrap UI factory with:
+  - `ui.dropdown(...)`
+  - `ui.selectableTable(...)`
+  - `ui.gridBoard(...)`
+- Extended `PluginCardRenderer` to render:
+  - `DropdownMenu`
+  - `SelectableDataTable`
+  - `GridBoard`
+- Expanded HyperCard Tools stack:
+  - new demo cards for `dropdowns`, `selectableTable`, `gridBoard`, `eventPayloads`, `domainIntents`
+  - missing examples now included: `button.variant`, input `placeholder`, merged args payload demo
+- Added app domain reducer wiring in HyperCard Tools launcher (`app_hypercard_tools`) to demonstrate `dispatchDomainAction` roundtrip.
+
+### Why
+
+- The current DSL previously only covered a smaller subset; requested demos required adding first-class DSL support for the missing widgets.
+- Domain intent examples needed an owned reducer slice to produce visible, deterministic state changes in demos.
+
+### What worked
+
+- Typecheck passed for touched packages/apps.
+- Runtime schema tests passed with new node kinds.
+- Launcher host tests in `wesen-os` continued passing after state slice extension.
+
+### What didn't work
+
+- Existing non-failing test noise remains in `wesen-os` test runs (known `act(...)` warnings and URL parse warnings in unrelated tests).
+
+### What I learned
+
+- `selectProjectedRuntimeDomains` made domain-intent demos straightforward once `app_hypercard_tools` slice existed.
+- A dedicated event-payload card is the clearest way to explain args+event payload merging semantics.
+
+### What was tricky to build
+
+- `selectableTable` needed a stable row-key mapping strategy in renderer from raw row arrays. I mapped rows into object records (`id`, `c0...cN`) and forwarded selection/search/row-click payloads back through event refs.
+- Keeping the demo bundle readable while adding many new cards required more helper normalization functions and explicit card-level state initialization.
+
+### What warrants a second pair of eyes
+
+- Renderer mapping logic for `selectableTable` payload shape (`rowKeyIndex`, selected rows, row-click payload fields).
+- Bootstrap normalization decisions (defaults for widths/indexes/search fields) to confirm they match desired authoring ergonomics.
+
+### What should be done in the future
+
+- Add a concise UI DSL reference table in docs mapping each node kind to required/optional props with one copy-paste snippet per kind.
+
+### Code review instructions
+
+- Start in runtime contract path:
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/plugin-runtime/uiTypes.ts`
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/plugin-runtime/uiSchema.ts`
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/plugin-runtime/stack-bootstrap.vm.js`
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/hypercard-runtime/src/runtime-host/PluginCardRenderer.tsx`
+- Then inspect demo implementation:
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/domain/pluginBundle.vm.js`
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/launcher/module.tsx`
+  - `/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/apps/hypercard-tools/src/domain/stack.ts`
+
+### Technical details
+
+Validation commands run:
+
+```bash
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os
+pnpm exec tsc -p apps/hypercard-tools/tsconfig.json --noEmit
+pnpm exec tsc -p packages/hypercard-runtime/tsconfig.json --noEmit
+pnpm --filter @hypercard/hypercard-runtime test -- src/plugin-runtime/uiSchema.test.ts
+
+cd /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/wesen-os/apps/os-launcher
+pnpm test -- launcherHost.test.tsx
+```
