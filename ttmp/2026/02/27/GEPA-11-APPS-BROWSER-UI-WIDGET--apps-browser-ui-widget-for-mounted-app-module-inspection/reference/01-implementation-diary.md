@@ -858,3 +858,47 @@ Added schema previews directly inside API method detail view so users can inspec
 - Files changed:
   - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
   - `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`
+
+## Step 13: Fold schema previews by default + YAML syntax highlighting
+
+Adjusted schema preview UX for method detail panel to be collapsed by default and rendered as YAML with shared debug syntax highlighting.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Fold them in per default, use YAML + syntax highlighting like in the card / stacks debugger to make it more readable."
+
+**Assistant interpretation:** Keep schema previews present, but default-collapsed and rendered using the same presentation primitives used in debugger windows.
+
+**Inferred user intent:** Improve readability/density in API detail without losing deep schema visibility.
+
+### What I did
+
+- Updated `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`:
+  - Imported and reused:
+    - `SyntaxHighlight`
+    - `toYaml`
+  - Added `toReadableYaml()` helper:
+    - serializes objects with `toYaml`
+    - attempts JSON parsing for string payloads that look like JSON
+  - Converted schema rendering from raw `<pre>` to:
+    - `SyntaxHighlight` with `language="yaml"`
+  - Changed API schema previews to `<details>/<summary>` sections:
+    - collapsed by default
+    - auto-fetches on first expand
+    - retains retry/error flow
+- Updated `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`:
+  - added fold summary/icon styles and schema section block styling.
+- Validation:
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)
+
+### Why
+
+- Raw JSON blocks were visually dense and too noisy when all method schemas were visible.
+- Folding by default keeps method metadata scan-friendly while preserving quick access to full contracts.
+
+### Technical details
+
+- Files changed:
+  - `go-go-os/apps/apps-browser/src/components/BrowserDetailPanel.tsx`
+  - `go-go-os/apps/apps-browser/src/components/ModuleBrowserWindow.css`

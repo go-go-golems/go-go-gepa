@@ -39,3 +39,6 @@
 - Extended API method detail panel:
   - shows request/response/error schema blocks at the bottom of method info
   - each block auto-fetches and renders full schema payload (with retry/error state)
+- Updated schema previews for readability:
+  - schema sections are folded/collapsed by default
+  - payload rendering now uses YAML + shared syntax highlighting (`SyntaxHighlight`, `toYaml`) like debug windows

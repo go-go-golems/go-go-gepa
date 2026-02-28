@@ -103,3 +103,4 @@
 - [x] `GEPA11-148` Auto-fetch schema payload when a schema row is selected (keep manual retry action visible).
 - [x] `GEPA11-149` Fix frontend dev proxy for generic `/api/apps/*` so schema fetch routes do not fall through to SPA HTML.
 - [x] `GEPA11-150` Show request/response/error schema previews at the bottom of selected API method detail panel.
+- [x] `GEPA11-151` Fold API schema previews by default and render schema payloads as syntax-highlighted YAML.
