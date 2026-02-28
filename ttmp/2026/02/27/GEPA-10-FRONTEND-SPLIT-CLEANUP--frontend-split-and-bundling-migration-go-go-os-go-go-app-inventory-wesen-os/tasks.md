@@ -31,11 +31,11 @@
 
 ## Phase 4 - Dist and Binary Assembly Ownership in wesen-os
 
-- [ ] `GEPA10-40` Add `launcher:frontend:build` script in `wesen-os`.
-- [ ] `GEPA10-41` Add `launcher:ui:sync` script to copy launcher dist into `wesen-os/pkg/launcherui/dist`.
-- [ ] `GEPA10-42` Add `launcher:binary:build` script chaining frontend build, sync, and Go binary build.
-- [ ] `GEPA10-43` Add/update smoke script in `wesen-os` validating root UI and namespaced backend endpoints.
-- [ ] `GEPA10-44` Remove obsolete launcher build/sync scripts from `go-go-os` and validate docs/scripts are coherent.
+- [x] `GEPA10-40` Add `launcher:frontend:build` script in `wesen-os`.
+- [x] `GEPA10-41` Add `launcher:ui:sync` script to copy launcher dist into `wesen-os/pkg/launcherui/dist`.
+- [x] `GEPA10-42` Add `launcher:binary:build` script chaining frontend build, sync, and Go binary build.
+- [x] `GEPA10-43` Add/update smoke script in `wesen-os` validating root UI and namespaced backend endpoints.
+- [x] `GEPA10-44` Remove obsolete launcher build/sync scripts from `go-go-os` and validate docs/scripts are coherent.
 
 ## Phase 5 - Docs, CI, and Handoff
 

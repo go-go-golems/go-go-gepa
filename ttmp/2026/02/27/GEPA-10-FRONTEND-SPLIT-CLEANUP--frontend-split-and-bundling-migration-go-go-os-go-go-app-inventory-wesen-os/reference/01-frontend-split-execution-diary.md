@@ -15,7 +15,7 @@ Owners: []
 RelatedFiles: []
 ExternalSources: []
 Summary: "Chronological research and planning diary for GEPA-10 frontend split."
-LastUpdated: 2026-02-27T19:40:00-05:00
+LastUpdated: 2026-02-27T22:20:00-05:00
 WhatFor: "Track implementation-relevant findings, command outputs, and decisions."
 WhenToUse: "Read before executing tasks; append entries during implementation."
 ---
@@ -251,6 +251,48 @@ cd go-go-app-inventory && rg --files | rg 'package.json$|apps/'
      - `wesen-os`: `npm run test` -> pass (`4 files`, `24 tests`)
    - Interpretation:
      - Phase 3 complete with working launcher frontend in `wesen-os`.
+
+22. 2026-02-27 22:05 ET - `GEPA10-40..43` launcher orchestration scripts in `wesen-os`
+   - Added `wesen-os` root scripts:
+     - `launcher:frontend:build`
+     - `launcher:ui:sync`
+     - `launcher:binary:build`
+     - `launcher:smoke`
+   - Added script files:
+     - `scripts/launcher-ui-sync.sh` (syncs `apps/os-launcher/dist` -> `pkg/launcherui/dist`)
+     - `scripts/build-wesen-os-launcher.sh` (builds `./cmd/wesen-os-launcher` into `build/wesen-os-launcher`)
+     - `scripts/smoke-wesen-os-launcher.sh` (boot/run smoke and route checks)
+   - Initial smoke failure (hard-cutover profile registry requirement):
+     - launcher exited before readiness with:
+       - `profile-settings.profile-registries must be configured (hard cutover: no profile-file fallback)`
+   - Fix:
+     - smoke script now writes a temp runtime registry YAML (`slug` + `profiles.default.runtime.step_settings_patch.ai-chat.ai-engine`) and passes:
+       - `--profile default`
+       - `--profile-registries <temp-registry-path>`
+     - same flags applied to the required-apps negative-path startup check.
+   - Validation:
+     - `cd wesen-os && npm run launcher:binary:build` -> pass
+     - `cd wesen-os && npm run launcher:smoke` -> pass
+     - `cd wesen-os && npm run build` -> pass
+     - `cd wesen-os && npm run test` -> pass
+     - `cd wesen-os && GOWORK=off go test ./...` -> pass
+
+23. 2026-02-27 22:15 ET - `GEPA10-44` launcher script ownership cleanup in `go-go-os`
+   - Removed obsolete launcher smoke script from `go-go-os`:
+     - `scripts/smoke-go-go-os-launcher.sh` (deleted)
+   - Removed stale launcher frontend script key from `go-go-os/package.json`:
+     - removed `launcher:frontend:build`
+   - Replaced legacy launcher-focused Make targets with generic frontend targets:
+     - `build`
+     - `test`
+     - `storybook-check`
+   - Validation:
+     - `cd go-go-os && npm run build` -> pass
+     - `cd go-go-os && npm run test` -> pass
+     - `cd go-go-os && GOWORK=off go test ./...` -> fails with expected non-module workspace error:
+       - `pattern ./...: directory prefix . does not contain main module or its selected dependencies`
+   - Interpretation:
+     - Phase 4 complete: launcher build/dist/smoke ownership is in `wesen-os`; `go-go-os` no longer advertises launcher assembly/smoke as local responsibilities.
 
 ## Related
 
