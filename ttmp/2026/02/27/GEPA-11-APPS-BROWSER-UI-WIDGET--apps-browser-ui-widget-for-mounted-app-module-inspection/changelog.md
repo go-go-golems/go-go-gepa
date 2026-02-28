@@ -14,3 +14,15 @@
 - Uploaded final bundle to reMarkable after dry-run:
   - `GEPA-11 Apps Browser UX Packet.pdf`
   - remote path: `/ai/2026/02/27/GEPA-11-APPS-BROWSER-UI-WIDGET`
+- Backfilled integration work for wiring apps-browser into `wesen-os`, including module registration/alias updates and adapter provider fix for RTK Query.
+- Wired Apps Browser interactions:
+  - double-click module icon -> open Module Browser preselected to module
+  - right-click module icon -> context actions (`Open in Browser`, `Get Info`, `Open Health Dashboard`, `Launch App`)
+  - Get Info footer action -> opens Browser window
+  - Health Dashboard row click -> opens Get Info window
+- Added apps-browser launcher command handlers (`apps-browser.open-browser`, `apps-browser.get-info`, `apps-browser.open-health`).
+- Added launcher host regression test in `wesen-os` for apps-browser command routing and payload assertions.
+- Re-ran integration validation in `wesen-os/apps/os-launcher`:
+  - `npm run test -w apps/os-launcher` (pass)
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)

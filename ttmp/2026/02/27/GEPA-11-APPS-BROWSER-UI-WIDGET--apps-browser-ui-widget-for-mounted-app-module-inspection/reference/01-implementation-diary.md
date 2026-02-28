@@ -607,3 +607,121 @@ Continued building all UI components, the launcher module, and ran final validat
 1. `../design-doc/01-apps-browser-ux-and-technical-reference.md`
 2. `../tasks.md`
 3. `../changelog.md`
+
+## Step 8 (Backfill): Launcher integration into wesen-os + provider fix for RTK Query
+
+This backfill captures work that happened after the initial GEPA-11 implementation phases: wiring the Apps Browser launcher module into `wesen-os`, then fixing a runtime provider issue that surfaced in launcher tests.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Wire up the GEPA-11 build apps/apps-browser in wesen-os so we can inspect our apps."
+
+**Assistant interpretation:** Register the new `apps-browser` launcher module in the composition launcher and ensure the host can render it in the desktop runtime.
+
+**Inferred user intent:** Make the Apps Browser actually usable in the integrated launcher, not just in package-local stories.
+
+### What I did
+
+- In `wesen-os/apps/os-launcher/`:
+  - Registered `appsBrowserLauncherModule` in `src/app/modules.tsx`.
+  - Added package aliasing for `@hypercard/apps-browser` and `@hypercard/apps-browser/launcher` in:
+    - `tsconfig.json`
+    - `vite.config.ts`
+    - `vitest.config.ts`
+  - Updated launcher host tests to include `apps-browser` in module expectations.
+- While running launcher tests, found runtime failure: apps-browser windows were rendered by adapter without `AppsBrowserHost` provider, so RTK Query hooks executed without middleware.
+- In `go-go-os/apps/apps-browser/src/launcher/module.tsx`:
+  - Updated adapter render to wrap all mapped windows in `<AppsBrowserHost>{content}</AppsBrowserHost>`.
+
+### Why
+
+- The launcher-level app list and module render path must know the package and path aliases.
+- Apps Browser relies on RTK Query; each mounted window must be under the package-local store provider.
+
+### What worked
+
+- `wesen-os` launcher tests passed after alias + module registration updates.
+- Build and typecheck for `apps/os-launcher` passed clean.
+- RTK Query provider/middleware issue was resolved by wrapping adapter-rendered windows.
+
+### What didn't work
+
+- First attempt rendered adapter windows directly; tests exposed missing middleware (`appsApi` middleware not added).
+
+### Technical details
+
+- `wesen-os` commit: `e01048b` (module registration + alias wiring + test updates).
+- `go-go-os` commit: `8023865` (adapter provider host fix).
+
+## Step 9: Apps Browser interaction wiring (double-click + context menu commands)
+
+This step implements the missing behavior in the mounted apps list: double-click and right-click actions now route through desktop command handling and open real windows.
+
+### Prompt Context
+
+**User prompt (verbatim):**
+- "wire up the double clicking on apps and context menus and all that, because currently I only see the list of apps."
+- "Keep a frequent diary as you work in GEPA-11 btw, commit as you go"
+- "backfill for what you did as well"
+
+**Assistant interpretation:** Implement production wiring for icon interactions, add regression tests, and update diary with both backfill and ongoing progress.
+
+**Inferred user intent:** Move from static visualization to an interactive app inspector workflow.
+
+### What I did
+
+- Updated `go-go-os/apps/apps-browser/src/components/AppsFolderWindow.tsx`:
+  - Added per-app selected state in folder grid.
+  - Added `AppsFolderIconEntry` wrapper for each icon.
+  - Registered per-app desktop context actions via `useRegisterContextActions`.
+  - Opened desktop context menu on right-click via `useOpenDesktopContextMenu`.
+  - Added context menu actions:
+    - `Open in Browser` → `apps-browser.open-browser`
+    - `Get Info` → `apps-browser.get-info`
+    - `Open Health Dashboard` → `apps-browser.open-health`
+    - `Launch App` → `app.launch.{appId}`
+  - Kept Storybook compatibility when no desktop runtime is mounted.
+- Updated `go-go-os/apps/apps-browser/src/launcher/module.tsx`:
+  - Adapter now receives `LauncherHostContext`.
+  - Folder window double-click opens `Module Browser` preselected to clicked app.
+  - Health dashboard row click opens per-app `Get Info`.
+  - Get Info footer `Open in Browser` now opens preselected browser window.
+  - Added `DesktopCommandHandler` for:
+    - `apps-browser.open-browser`
+    - `apps-browser.get-info`
+    - `apps-browser.open-health`
+  - Command handler resolves `appId` from invocation payload/context target and opens correct window payload.
+- Added regression test in `wesen-os/apps/os-launcher/src/__tests__/launcherHost.test.tsx`:
+  - Verifies command routing and resulting `appKey` payloads for browser, get-info, and health windows.
+- Validation run:
+  - `npm run test -w apps/os-launcher` (pass)
+  - `npm run typecheck -w apps/os-launcher` (pass)
+  - `npm run build -w apps/os-launcher` (pass)
+
+### Why
+
+- The original folder view exposed data but had no actionable interaction path for inspection.
+- Command-based wiring keeps actions consistent with desktop shell routing and context-menu policy.
+
+### What worked
+
+- All launcher tests passed with new apps-browser command route test included.
+- Context menu commands now resolve deterministically to window payloads.
+- Existing non-fatal selector/`act(...)` warnings remain unchanged baseline noise in launcher tests.
+
+### What didn't work
+
+- Attempt to run `tsc` directly in `go-go-os` failed because local `typescript` binary path was not installed in that repo's local `node_modules`.
+- Resolved by relying on `wesen-os` validation suite where integration is exercised.
+
+### What should be done in the future
+
+- Add user-facing context actions for "Copy Base URL" and "Copy Reflection URL" to match the extended GEPA-11 UX notes.
+- Add an interaction-focused UI test that right-clicks an app icon inside the Apps Browser window and asserts menu entries.
+
+### Technical details
+
+- Files changed in this step:
+  - `go-go-os/apps/apps-browser/src/components/AppsFolderWindow.tsx`
+  - `go-go-os/apps/apps-browser/src/launcher/module.tsx`
+  - `wesen-os/apps/os-launcher/src/__tests__/launcherHost.test.tsx`

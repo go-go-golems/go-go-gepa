@@ -89,3 +89,13 @@
 - [x] `GEPA11-131` Run `biome check` and fix all errors (21 auto-fixes, 1 manual fix).
 - [x] `GEPA11-132` Run Storybook build — passes clean, all stories included.
 - [x] `GEPA11-133` Update diary with implementation notes (Steps 6-7).
+
+## Phase 15 - Interaction Wiring Follow-up
+
+- [x] `GEPA11-140` Wire Apps Folder double-click behavior to open Module Browser preselected to clicked module.
+- [x] `GEPA11-141` Wire per-module right-click context menu actions (`Open in Browser`, `Get Info`, `Open Health Dashboard`, `Launch App`).
+- [x] `GEPA11-142` Add launcher command handlers for `apps-browser.open-browser`, `apps-browser.get-info`, `apps-browser.open-health`.
+- [x] `GEPA11-143` Wire cross-window navigation callbacks (`Get Info -> Open in Browser`, `Health row -> Get Info`).
+- [x] `GEPA11-144` Add/extend launcher host tests in `wesen-os` to lock command routing and window payloads.
+- [x] `GEPA11-145` Run integration validation (`test`, `typecheck`, `build`) for `wesen-os/apps/os-launcher`.
+- [x] `GEPA11-146` Backfill GEPA-11 diary with prior integration commits and current interaction changes.
