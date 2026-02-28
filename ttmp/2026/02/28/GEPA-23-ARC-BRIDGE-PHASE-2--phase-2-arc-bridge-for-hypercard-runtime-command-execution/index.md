@@ -14,25 +14,7 @@ Topics:
 DocType: index
 Intent: long-term
 Owners: []
-RelatedFiles:
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/apps/arc-agi-player/src/api/arcApi.ts
-      Note: Existing ARC API wrappers to reuse in bridge op mapping
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts
-      Note: ARC bridge middleware executes arc/command.request lifecycle and API mappings
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/pluginBundle.ts
-      Note: Demo VM card handlers dispatch ARC command requests
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/stack.ts
-      Note: ARC demo HyperCard stack definition and capability policy
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/apps/arc-agi-player/src/launcher/module.tsx
-      Note: Folder launch behavior providing React game and HyperCard stack entrypoints
-    - Path: ttmp/2026/02/go-go-app-arc-agi-3/pkg/backendmodule/routes.go
-      Note: Backend route contract source for command execution mapping
-    - Path: ttmp/2026/02/go-go-os/packages/engine/src/components/shell/windowing/PluginCardSessionHost.tsx
-      Note: Runtime host now reports render errors without render-time dispatch
-    - Path: ttmp/2026/02/go-go-os/packages/engine/src/components/shell/windowing/pluginIntentRouting.ts
-      Note: Generic routing emits runtime metadata consumed by ARC bridge middleware
-    - Path: ttmp/2026/02/go-go-os/packages/engine/src/features/pluginCardRuntime/pluginCardRuntimeSlice.ts
-      Note: Runtime ingest/timeline primitives used by ARC middleware session-state mirroring
+RelatedFiles: []
 ExternalSources: []
 Summary: Delivery ticket for implementing the ARC bridge that maps HyperCard VM runtime intents to ARC backend commands and projects command/session/game results back into Redux for card rerendering.
 LastUpdated: 2026-02-28T05:49:00-05:00
