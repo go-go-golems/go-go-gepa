@@ -32,7 +32,7 @@ RelatedFiles:
     - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/app/store.ts
       Note: ARC app store registration for arcBridge reducer and middleware
 ExternalSources: []
-Summary: Updated implementation plan with clean split: engine remains generic; ARC bridge and ARC demo HyperCard stack are implemented in go-go-app-arc-agi-3.
+Summary: "Updated implementation plan with clean split: engine remains generic; ARC bridge and ARC demo HyperCard stack are implemented in go-go-app-arc-agi-3."
 LastUpdated: 2026-02-28T01:07:00-05:00
 WhatFor: Keep GEPA-23 implementation aligned with the clean repository boundary and intern-readable execution path.
 WhenToUse: Use when continuing Phase 2 ARC bridge delivery and validating folder launch + React/game + HyperCard stack coexistence.

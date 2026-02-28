@@ -117,3 +117,30 @@ Notes:
    - folder opens HyperCard demo,
    - demo dispatches create-session/action/reset end-to-end.
 3. Add final changelog closure entry once manual smoke evidence is collected.
+
+## 2026-02-28 01:14 - Runtime render warning + empty card output hotfix
+
+Bug report received:
+
+1. React warning: `Cannot update a component (DesktopShell) while rendering a different component (PluginCardSessionHost)`.
+2. ARC demo card window showed `No plugin output for card: home` with runtime session alive.
+
+Root cause analysis:
+
+1. ARC demo bundle `home.render` accessed `command.status` when `command` was `null` on first render (no request yet), causing a render exception.
+2. `PluginCardSessionHost` caught render exceptions and dispatched `showToast(...)` inside `useMemo` render computation, which is a state update during render and triggers React warning.
+
+Fixes applied:
+
+1. `go-go-app-arc-agi-3` commit `c0b8e3f`:
+   - `latestCommand` now returns `{}` for empty request id.
+   - `home.render` uses `asRecord(latestCommand(...))` before status access.
+2. `go-go-os` commit `b645bea`:
+   - `PluginCardSessionHost` render path now returns `{ tree, error }` from memo.
+   - toast dispatch for render errors moved to `useEffect` with dedupe ref.
+   - host shows explicit `Runtime render error: ...` fallback instead of silent `No plugin output`.
+
+Validation:
+
+1. `npx vitest run packages/engine/src/__tests__/plugin-intent-routing.test.ts` -> pass.
+2. `npm run test -w apps/os-launcher -- launcherHost` -> pass.

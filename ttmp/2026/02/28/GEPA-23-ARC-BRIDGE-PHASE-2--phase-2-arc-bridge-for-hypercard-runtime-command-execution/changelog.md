@@ -25,3 +25,14 @@ Executed ARC bridge implementation with clean split: engine kept generic, ARC br
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/reference/01-implementation-diary.md — Chronological diary with commands
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/tasks.md — Updated granular tasks with completion status
 
+
+## 2026-02-28
+
+Fixed ARC demo initial render crash and removed render-time toast dispatch in PluginCardSessionHost. This resolves the React setState-during-render warning and surfaces runtime render errors cleanly.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/pluginBundle.ts — Null-safe command access in demo card render
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/28/GEPA-23-ARC-BRIDGE-PHASE-2--phase-2-arc-bridge-for-hypercard-runtime-command-execution/reference/01-implementation-diary.md — Diary entry documenting root cause and fix commits
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/engine/src/components/shell/windowing/PluginCardSessionHost.tsx — Move toast dispatch out of render path and add render error fallback
+
