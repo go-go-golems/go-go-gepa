@@ -22,7 +22,7 @@ RelatedFiles:
       Note: Folder launch behavior with React + HyperCard entrypoints
 ExternalSources: []
 Summary: Chronological implementation diary for GEPA-23 execution, including boundary pivot, commits, tests, and remaining work.
-LastUpdated: 2026-02-28T01:36:00-05:00
+LastUpdated: 2026-02-28T01:40:00-05:00
 WhatFor: Preserve exact execution trace for intern handoff and review.
 WhenToUse: Use when auditing implementation decisions and reproducing validation results.
 ---
@@ -241,3 +241,27 @@ Validation:
 Commit:
 
 1. `096f8f8` - `feat(arc-demo): load game ids dynamically for card sessions`
+
+## 2026-02-28 01:39 - Load Games response-shape hardening
+
+Follow-up signal:
+
+1. Request ID/status updated, so rerender and intent dispatch paths were active.
+2. Remaining suspicion: `/games` response shape differs by backend (array vs wrapped object).
+
+Fix applied (`go-go-app-arc-agi-3`):
+
+1. Normalized list payload handling for both bridge paths (`ArcPendingIntentEffectHost` and `middleware`):
+   - accept top-level arrays,
+   - accept wrapped objects: `games`, `items`, `results`,
+   - accept item forms: string IDs, `{game_id|gameId|id}`, nested `{ game: {...} }`.
+2. Continued writing normalized IDs into runtime session `arcAvailableGames`.
+
+Validation:
+
+1. `npm run test -w apps/os-launcher -- launcherHost` -> pass (17 tests).
+2. `npm run build -w apps/os-launcher` -> pass.
+
+Commit:
+
+1. `7668ada` - `fix(arc-demo): normalize list-games payload shapes`

@@ -69,3 +69,13 @@ Replaced hardcoded ARC game IDs in HyperCard demo with dynamic backend discovery
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Execute `list-games` via `/api/apps/arc-agi/games` in launcher card path and persist `arcAvailableGames`
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts — Mirror `list-games` execution support in app middleware path
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/domain/pluginBundle.ts — Add `Load Games` action and render dynamic game buttons from runtime session state
+
+
+## 2026-02-28
+
+Hardened dynamic game discovery parsing to support backend response-shape variants for `/api/apps/arc-agi/games`.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/ArcPendingIntentEffectHost.tsx — Normalize `list-games` payload extraction and ID parsing in launcher-card queue path
+- /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/bridge/middleware.ts — Keep app-middleware `list-games` parsing behavior aligned
