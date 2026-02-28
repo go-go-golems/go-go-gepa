@@ -52,3 +52,17 @@ Executed GEPA-26 hard-cut implementation across codebases: introduced `@hypercar
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/engine/src/index.ts — Engine runtime exports removed
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-os/packages/desktop-os/src/store/createLauncherStore.ts — Launcher store now uses runtime package app store factory
 - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/src/launcher/module.tsx — ARC app launcher now hosts runtime session from new package
+
+
+## 2026-02-28
+
+Addressed downstream tmux launcher regression discovered post-cut: added `@hypercard/hypercard-runtime` alias wiring in `wesen-os` launcher and migrated remaining inventory app runtime imports off removed engine adapter exports.
+
+### Commits
+
+- `wesen-os`: `138d455` — `fix: wire hypercard-runtime alias in os-launcher configs`
+- `go-go-app-inventory`: `e5710f2` — `refactor: migrate inventory app runtime imports to hypercard-runtime`
+
+### Validation
+
+- `wesen-os/apps/os-launcher`: `npm run build` passes after alias + inventory rewires.

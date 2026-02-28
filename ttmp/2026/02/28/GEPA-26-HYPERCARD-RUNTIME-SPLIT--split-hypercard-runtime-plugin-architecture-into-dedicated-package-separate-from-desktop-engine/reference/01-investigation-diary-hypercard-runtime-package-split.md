@@ -27,7 +27,7 @@ RelatedFiles:
       Note: Primary design deliverable produced from investigation log
 ExternalSources: []
 Summary: Chronological investigation log for GEPA-26 package split analysis, design writing, and publishing.
-LastUpdated: 2026-02-28T21:05:00Z
+LastUpdated: 2026-02-28T21:20:00Z
 WhatFor: Preserve command-level traceability and rationale for future implementation phases.
 WhenToUse: Use when validating assumptions, replaying architecture analysis, or onboarding contributors to split execution.
 ---
@@ -536,6 +536,37 @@ After implementation commits and ticket doc updates, I re-published the GEPA-26 
 2. Remote folder contains:
    - `GEPA-26 HyperCard Runtime Split Design`
    - `GEPA-26-runtime-split-implementation-diary-update`
+
+## Step 9: Resolve downstream launcher alias regression found in tmux dev flow
+
+After implementation, the live `wesen-os` launcher surfaced an import-resolution failure for `@hypercard/hypercard-runtime`. This happened because launcher alias/path wiring was manually curated and still only listed `@hypercard/engine` paths.
+
+### What I did
+
+1. Patched `wesen-os/apps/os-launcher` resolver wiring:
+   - added runtime alias to `vite.config.ts`
+   - added runtime alias to `vitest.config.ts`
+   - added runtime path mapping to `tsconfig.json`
+2. Re-ran launcher build:
+   - `npm run build` in `wesen-os/apps/os-launcher`
+3. Build then exposed the next stale import in inventory app:
+   - `@hypercard/engine/desktop-hypercard-adapter` in `go-go-app-inventory`
+4. Patched `go-go-app-inventory/apps/inventory`:
+   - moved runtime imports (`PluginCardSessionHost`, `RuntimeCardDebugWindow`, `registerHypercardTimelineModule`, `createAppStore`) to `@hypercard/hypercard-runtime`
+   - added runtime package wiring in inventory `package.json` and `tsconfig.json`
+5. Re-ran launcher build successfully after both patches.
+
+### Why
+
+1. The earlier verification focused on package tests and build commands, not the cross-repo Vite alias graph used by `wesen-os` launcher in tmux.
+2. The launcher composes multiple app sources from different repos, so alias drift appears only there.
+
+### Technical details
+
+1. Launcher alias hotfix commit:
+   - `wesen-os`: `138d455` — `fix: wire hypercard-runtime alias in os-launcher configs`
+2. Inventory import migration follow-up:
+   - `go-go-app-inventory`: `e5710f2` — `refactor: migrate inventory app runtime imports to hypercard-runtime`
 
 ### Why
 
