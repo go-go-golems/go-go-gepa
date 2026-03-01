@@ -38,7 +38,7 @@ type PluginGenerateOptions struct {
 }
 
 type RNG interface {
-	IntN(max int) int
+	IntN(n int) int
 	Float64() float64
 	Choice(values []any) any
 	Shuffle(values []any)
@@ -256,8 +256,8 @@ func buildRNGBridge(vm *goja.Runtime, rng any) any {
 		return rng
 	}
 	obj := vm.NewObject()
-	_ = obj.Set("intN", func(max int) int {
-		return bridge.IntN(max)
+	_ = obj.Set("intN", func(n int) int {
+		return bridge.IntN(n)
 	})
 	_ = obj.Set("float64", func() float64 {
 		return bridge.Float64()

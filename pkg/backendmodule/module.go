@@ -493,9 +493,10 @@ func parseAfterSeq(raw string) (int64, error) {
 
 func isTerminalStatus(status RunStatus) bool {
 	switch status {
+	case RunStatusQueued, RunStatusRunning:
+		return false
 	case RunStatusCompleted, RunStatusFailed, RunStatusCanceled:
 		return true
-	default:
-		return false
 	}
+	return false
 }

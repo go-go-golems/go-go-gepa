@@ -8,8 +8,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const candidateRunsTable = "gepa_candidate_runs"
-
 type candidateRunRecord struct {
 	RunID                    string
 	TimestampMS              int64

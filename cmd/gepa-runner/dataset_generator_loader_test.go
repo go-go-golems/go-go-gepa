@@ -17,11 +17,11 @@ type loaderTestRNG struct {
 	rng *rand.Rand
 }
 
-func (r *loaderTestRNG) IntN(max int) int {
-	if r == nil || r.rng == nil || max <= 0 {
+func (r *loaderTestRNG) IntN(n int) int {
+	if r == nil || r.rng == nil || n <= 0 {
 		return 0
 	}
-	return r.rng.Intn(max)
+	return r.rng.Intn(n)
 }
 
 func (r *loaderTestRNG) Float64() float64 {

@@ -98,9 +98,10 @@ func callAndResolveWithoutRunner(op string, vm *goja.Runtime, fn CallFunc) (any,
 		return exportValue(promise.Result()), nil
 	case goja.PromiseStateRejected:
 		return nil, rejectionError(op, exportValue(promise.Result()))
-	default:
+	case goja.PromiseStatePending:
 		return nil, fmt.Errorf("%s: pending promise requires runtime runner", op)
 	}
+	return nil, fmt.Errorf("%s: unknown promise state", op)
 }
 
 func preparePromiseOrValue(op string, vm *goja.Runtime, value goja.Value, settleCh chan<- settledResult) (any, error) {
@@ -118,6 +119,8 @@ func preparePromiseOrValue(op string, vm *goja.Runtime, value goja.Value, settle
 		return promiseOutcome{value: exportValue(promise.Result())}, nil
 	case goja.PromiseStateRejected:
 		return nil, rejectionError(op, exportValue(promise.Result()))
+	case goja.PromiseStatePending:
+		// Handlers are attached below and completion is reported via settleCh.
 	}
 
 	promiseObj := value.ToObject(vm)

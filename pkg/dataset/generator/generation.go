@@ -130,11 +130,11 @@ func newSeededRNG(seed int64) *seededRNG {
 	return &seededRNG{rng: rand.New(rand.NewSource(seed))}
 }
 
-func (r *seededRNG) IntN(max int) int {
-	if r == nil || r.rng == nil || max <= 0 {
+func (r *seededRNG) IntN(n int) int {
+	if r == nil || r.rng == nil || n <= 0 {
 		return 0
 	}
-	return r.rng.Intn(max)
+	return r.rng.Intn(n)
 }
 
 func (r *seededRNG) Float64() float64 {
