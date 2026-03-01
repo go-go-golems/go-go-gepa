@@ -173,6 +173,7 @@ type CandidateEntry struct {
 // NewOptimizer constructs an optimizer.
 func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimizer {
 	c := cfg.withDefaults()
+	// #nosec G404 -- deterministic seeded RNG is required for reproducible optimization runs.
 	r := rand.New(rand.NewSource(c.RandomSeed))
 	// Plumb config defaults into the reflector unless the caller overrides.
 	if reflector != nil {

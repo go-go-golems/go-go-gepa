@@ -41,9 +41,17 @@ func CallAndResolve(ctx context.Context, options CallAndResolveOptions, fn CallF
 	if op == "" {
 		op = "jsbridge.call"
 	}
-	ctx, cancel := withDefaultTimeout(ctx, options.DefaultTimeout)
-	if cancel != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		timeout := options.DefaultTimeout
+		if timeout <= 0 {
+			timeout = DefaultPromiseTimeout
+		}
+		timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
+		ctx = timeoutCtx
 	}
 
 	if options.Runner == nil {
@@ -151,19 +159,6 @@ func preparePromiseOrValue(op string, vm *goja.Runtime, value goja.Value, settle
 	}
 
 	return pendingPromise{}, nil
-}
-
-func withDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, nil
-	}
-	if timeout <= 0 {
-		timeout = DefaultPromiseTimeout
-	}
-	return context.WithTimeout(ctx, timeout)
 }
 
 func exportValue(v goja.Value) any {

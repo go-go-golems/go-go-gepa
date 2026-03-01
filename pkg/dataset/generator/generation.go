@@ -127,6 +127,7 @@ type seededRNG struct {
 }
 
 func newSeededRNG(seed int64) *seededRNG {
+	// #nosec G404 -- deterministic seeded RNG is required for reproducible dataset generation.
 	return &seededRNG{rng: rand.New(rand.NewSource(seed))}
 }
 

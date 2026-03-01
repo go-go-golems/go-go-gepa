@@ -135,7 +135,10 @@ func (s *InMemoryRunService) Start(ctx context.Context, script ScriptDescriptor,
 	})
 	s.mu.Unlock()
 
-	go s.completeRunAfterDelay(runCtx, runID, script)
+	go func() {
+		defer cancel()
+		s.completeRunAfterDelay(runCtx, runID, script)
+	}()
 	return cloneRunRecord(record), nil
 }
 
