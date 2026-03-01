@@ -36,7 +36,6 @@ func TestCandidateRunStreamCLIOutput(t *testing.T) {
 	scriptPath := filepath.Join(tmp, "candidate-plugin.js")
 	configPath := filepath.Join(tmp, "candidate-config.yaml")
 	inputPath := filepath.Join(tmp, "candidate-input.json")
-	registryPath := filepath.Join(tmp, "profiles.yaml")
 
 	script := `
 const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
@@ -71,17 +70,6 @@ metadata:
   candidate_id: c-1
 `
 	input := `{"question":"How are you?"}`
-	registry := `
-slug: test-local
-profiles:
-  gpt-5-nano:
-    slug: gpt-5-nano
-    runtime:
-      step_settings_patch:
-        ai-chat:
-          ai-api-type: openai-responses
-          ai-engine: gpt-5-nano
-`
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
 		t.Fatalf("write script: %v", err)
@@ -92,14 +80,8 @@ profiles:
 	if err := os.WriteFile(inputPath, []byte(input), 0o644); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
-	if err := os.WriteFile(registryPath, []byte(registry), 0o644); err != nil {
-		t.Fatalf("write registry: %v", err)
-	}
-
 	out, err := runGepaRunnerCLI(t,
 		"candidate", "run",
-		"--profile", "gpt-5-nano",
-		"--profile-registries", registryPath,
 		"--script", scriptPath,
 		"--config", configPath,
 		"--input-file", inputPath,
@@ -124,7 +106,6 @@ func TestDatasetGenerateStreamCLIOutput(t *testing.T) {
 	tmp := t.TempDir()
 	scriptPath := filepath.Join(tmp, "dataset-plugin.js")
 	configPath := filepath.Join(tmp, "dataset-config.yaml")
-	registryPath := filepath.Join(tmp, "profiles.yaml")
 
 	script := `
 const { defineDatasetGenerator, DATASET_GENERATOR_API_VERSION } = require("gepa/plugins");
@@ -163,17 +144,6 @@ validation:
   max_retries: 0
   drop_invalid: false
 `
-	registry := `
-slug: test-local
-profiles:
-  gpt-5-nano:
-    slug: gpt-5-nano
-    runtime:
-      step_settings_patch:
-        ai-chat:
-          ai-api-type: openai-responses
-          ai-engine: gpt-5-nano
-`
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
 		t.Fatalf("write script: %v", err)
@@ -181,14 +151,8 @@ profiles:
 	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := os.WriteFile(registryPath, []byte(registry), 0o644); err != nil {
-		t.Fatalf("write registry: %v", err)
-	}
-
 	out, err := runGepaRunnerCLI(t,
 		"dataset", "generate",
-		"--profile", "gpt-5-nano",
-		"--profile-registries", registryPath,
 		"--script", scriptPath,
 		"--config", configPath,
 		"--dry-run",
