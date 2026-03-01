@@ -1,0 +1,1452 @@
+diff --git a/cmd/gepa-runner/README.md b/cmd/gepa-runner/README.md
+index c44b5a7..cda0406 100644
+--- a/cmd/gepa-runner/README.md
++++ b/cmd/gepa-runner/README.md
+@@ -18,6 +18,8 @@ This is a **GEPA-inspired** implementation:
+ It does **not** (yet) port every detail of the reference implementation (e.g., specialized crossover/merge logic),
+ but it is designed so you can add that on top of the same primitives.
+ 
++Update: this runner now includes an optional **prompt merge** (crossover) step.
++
+ ## Quick start
+ 
+ 1. Write a JS plugin that exports an optimizer descriptor:
+@@ -53,6 +55,7 @@ gepa-runner optimize \
+   --seed "Answer the question." \
+   --max-evals 200 \
+   --batch-size 8 \
++  --merge-prob 0.15 \
+   --out-prompt best_prompt.txt \
+   --out-report run_report.json \
+   --profile 4o-mini
+@@ -84,7 +87,54 @@ Optional:
+ 
+ - `dataset() -> array` (used if `--dataset` is not provided)
+ 
++## Prompt merge (crossover)
++
++If you pass `--merge-prob > 0`, each iteration has a chance to do a **merge** instead of a standard reflective mutation.
++
++The merge step selects two parent candidates from the current frontier and proposes a new prompt by combining them.
++
++### Default merge behavior
++
++If the plugin does not implement a merge function, merges are proposed by an LLM using the runner's merge prompt template.
++
++### Custom merge in JS
++
++Your plugin instance may optionally implement one of the following functions:
++
++- `merge(input, options)`
++- `mergeCandidate(input, options)`
++- `mergePrompt(input, options)`
++
++If present, the runner will use it for merge steps.
++
++The `input` object looks like:
++
++```js
++{
++  candidateA: { /* candidate map */ },
++  candidateB: { /* candidate map */ },
++  paramKey: "prompt",     // which key the optimizer is currently optimizing
++  paramA: "...",          // candidateA[paramKey]
++  paramB: "...",          // candidateB[paramKey]
++  sideInfoA: "...",       // formatted examples/outputs/feedback for candidateA
++  sideInfoB: "..."        // formatted examples/outputs/feedback for candidateB
++}
++```
++
++Return value can be either:
++
++- a **string** (the merged prompt text), or
++- an object containing the merged prompt under `paramKey` / `prompt` / `mergedPrompt`, or
++- `{ candidate: { [paramKey]: "..." } }`.
++
+ ## Notes
+ 
+-- The optimizer currently mutates the `"prompt"` field (or falls back to the first key in `candidate`).
++- The optimizer supports **multi-parameter candidates** (multiple prompt strings / components).
++  - If you provide `--seed` / `--seed-file`, the seed candidate is `{prompt: "..."}`.
++  - If you provide `--seed-candidate`, the seed candidate is loaded from a JSON/YAML map (e.g. `{planner: "...", executor: "..."}`).
++- Use `--optimizable-keys` to restrict which keys are mutated/merged (comma-separated).
++- Use `--component-selector` to control how many keys are updated per iteration:
++  - `round_robin` (default): update **one** key per iteration, cycling through keys.
++  - `all`: update **all** optimizable keys each iteration.
++- The merge step (when enabled) runs a **system-aware component-wise merge** across keys and then applies the LLM-based merge on the selected component(s).
+ - Each `(candidate, example)` evaluation counts as **1** call against `--max-evals`.
+diff --git a/cmd/gepa-runner/dataset.go b/cmd/gepa-runner/dataset.go
+index 1c847d3..8d44b0b 100644
+--- a/cmd/gepa-runner/dataset.go
++++ b/cmd/gepa-runner/dataset.go
+@@ -6,7 +6,11 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"strconv"
+ 	"strings"
++
++	gepaopt "github.com/go-go-golems/geppetto/pkg/optimizer/gepa"
++	"gopkg.in/yaml.v3"
+ )
+ 
+ func resolveSeedText(seed, seedFile string) (string, error) {
+@@ -23,6 +27,119 @@ func resolveSeedText(seed, seedFile string) (string, error) {
+ 	return string(blob), nil
+ }
+ 
++func loadSeedCandidateFile(path string) (gepaopt.Candidate, error) {
++	if strings.TrimSpace(path) == "" {
++		return nil, fmt.Errorf("seed candidate path is empty")
++	}
++	blob, err := os.ReadFile(path)
++	if err != nil {
++		return nil, err
++	}
++
++	// Parse based on extension, with a graceful fallback.
++	ext := strings.ToLower(filepath.Ext(path))
++	var v any
++	var parseErr error
++	switch ext {
++	case ".yaml", ".yml":
++		parseErr = yaml.Unmarshal(blob, &v)
++	default:
++		parseErr = json.Unmarshal(blob, &v)
++	}
++	if parseErr != nil {
++		// Fallback: try the other format.
++		var v2 any
++		if ext == ".yaml" || ext == ".yml" {
++			if err2 := json.Unmarshal(blob, &v2); err2 == nil {
++				v = v2
++				parseErr = nil
++			}
++		} else {
++			if err2 := yaml.Unmarshal(blob, &v2); err2 == nil {
++				v = v2
++				parseErr = nil
++			}
++		}
++	}
++	if parseErr != nil {
++		return nil, parseErr
++	}
++
++	m, ok := v.(map[string]any)
++	if !ok {
++		if m2, ok2 := v.(map[string]interface{}); ok2 {
++			m = map[string]any{}
++			for k, vv := range m2 {
++				m[k] = vv
++			}
++		} else if m3, ok3 := v.(map[interface{}]interface{}); ok3 {
++			m = map[string]any{}
++			for k, vv := range m3 {
++				m[fmt.Sprintf("%v", k)] = vv
++			}
++		} else {
++			return nil, fmt.Errorf("seed candidate must be an object/map, got %T", v)
++		}
++	}
++
++	cand := gepaopt.Candidate{}
++	for k, vv := range m {
++		k = strings.TrimSpace(k)
++		if k == "" {
++			continue
++		}
++		cand[k] = coerceToString(vv)
++	}
++	return cand, nil
++}
++
++func coerceToString(v any) string {
++	if v == nil {
++		return ""
++	}
++	switch t := v.(type) {
++	case string:
++		return t
++	case json.Number:
++		return t.String()
++	case int:
++		return strconv.Itoa(t)
++	case int64:
++		return strconv.FormatInt(t, 10)
++	case int32:
++		return strconv.FormatInt(int64(t), 10)
++	case int16:
++		return strconv.FormatInt(int64(t), 10)
++	case int8:
++		return strconv.FormatInt(int64(t), 10)
++	case uint:
++		return strconv.FormatUint(uint64(t), 10)
++	case uint64:
++		return strconv.FormatUint(t, 10)
++	case uint32:
++		return strconv.FormatUint(uint64(t), 10)
++	case uint16:
++		return strconv.FormatUint(uint64(t), 10)
++	case uint8:
++		return strconv.FormatUint(uint64(t), 10)
++	case float64:
++		return strconv.FormatFloat(t, 'f', -1, 64)
++	case float32:
++		return strconv.FormatFloat(float64(t), 'f', -1, 32)
++	case bool:
++		if t {
++			return "true"
++		}
++		return "false"
++	default:
++		// Last resort: stable JSON representation when possible.
++		if blob, err := json.Marshal(t); err == nil {
++			return string(blob)
++		}
++		return fmt.Sprintf("%v", t)
++	}
++}
++
+ func loadDataset(path string) ([]any, error) {
+ 	if strings.TrimSpace(path) == "" {
+ 		return nil, fmt.Errorf("dataset path is empty")
+diff --git a/cmd/gepa-runner/main.go b/cmd/gepa-runner/main.go
+index 5f00750..1d35033 100644
+--- a/cmd/gepa-runner/main.go
++++ b/cmd/gepa-runner/main.go
+@@ -41,17 +41,21 @@ type OptimizeCommand struct {
+ var _ cmds.WriterCommand = (*OptimizeCommand)(nil)
+ 
+ type OptimizeSettings struct {
+-	ScriptPath       string `glazed:"script"`
+-	DatasetPath      string `glazed:"dataset"`
+-	Seed             string `glazed:"seed"`
+-	SeedFile         string `glazed:"seed-file"`
+-	Objective        string `glazed:"objective"`
+-	MaxEvalCalls     int    `glazed:"max-evals"`
+-	BatchSize        int    `glazed:"batch-size"`
+-	MaxSideInfoChars int    `glazed:"max-side-info-chars"`
+-	OutPrompt        string `glazed:"out-prompt"`
+-	OutReport        string `glazed:"out-report"`
+-	Debug            bool   `glazed:"debug"`
++	ScriptPath        string  `glazed:"script"`
++	DatasetPath       string  `glazed:"dataset"`
++	Seed              string  `glazed:"seed"`
++	SeedFile          string  `glazed:"seed-file"`
++	SeedCandidate     string  `glazed:"seed-candidate"`
++	Objective         string  `glazed:"objective"`
++	MaxEvalCalls      int     `glazed:"max-evals"`
++	BatchSize         int     `glazed:"batch-size"`
++	MergeProb         float64 `glazed:"merge-prob"`
++	MaxSideInfoChars  int     `glazed:"max-side-info-chars"`
++	OptimizableKeys   string  `glazed:"optimizable-keys"`
++	ComponentSelector string  `glazed:"component-selector"`
++	OutPrompt         string  `glazed:"out-prompt"`
++	OutReport         string  `glazed:"out-report"`
++	Debug             bool    `glazed:"debug"`
+ }
+ 
+ func NewOptimizeCommand() (*OptimizeCommand, error) {
+@@ -68,10 +72,14 @@ func NewOptimizeCommand() (*OptimizeCommand, error) {
+ 			fields.New("dataset", fields.TypeString, fields.WithHelp("Path to dataset (.json or .jsonl). Optional if plugin provides dataset().")),
+ 			fields.New("seed", fields.TypeString, fields.WithHelp("Seed prompt text (overrides --seed-file)")),
+ 			fields.New("seed-file", fields.TypeString, fields.WithHelp("Path to seed prompt file")),
++			fields.New("seed-candidate", fields.TypeString, fields.WithHelp("Path to seed candidate file (JSON or YAML) containing a map of parameter names to strings. If set, overrides --seed/--seed-file and enables multi-parameter optimization.")),
+ 			fields.New("objective", fields.TypeString, fields.WithHelp("Natural-language optimization objective (used in reflection prompt)")),
+ 			fields.New("max-evals", fields.TypeInt, fields.WithHelp("Max evaluator calls (each example eval counts as 1)"), fields.WithDefault(200)),
+ 			fields.New("batch-size", fields.TypeInt, fields.WithHelp("Minibatch size per iteration"), fields.WithDefault(8)),
++			fields.New("merge-prob", fields.TypeFloat, fields.WithHelp("Probability of attempting a merge (crossover) step between two prompts (0 disables)"), fields.WithDefault(0.0)),
+ 			fields.New("max-side-info-chars", fields.TypeInt, fields.WithHelp("Cap formatted side-info chars passed to reflection LLM (0 = uncapped)"), fields.WithDefault(8000)),
++			fields.New("optimizable-keys", fields.TypeString, fields.WithHelp("Comma-separated list of candidate keys to optimize (defaults to all keys in the seed candidate).")),
++			fields.New("component-selector", fields.TypeString, fields.WithHelp("Which parameter(s) to update per iteration: round_robin (default) or all."), fields.WithDefault("round_robin")),
+ 			fields.New("out-prompt", fields.TypeString, fields.WithHelp("Write best prompt to this file (optional)")),
+ 			fields.New("out-report", fields.TypeString, fields.WithHelp("Write JSON optimization report to this file (optional)")),
+ 			fields.New("debug", fields.TypeBool, fields.WithHelp("Debug mode - show parsed layers"), fields.WithDefault(false)),
+@@ -103,12 +111,25 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
+ 		return fmt.Errorf("--script is required")
+ 	}
+ 
+-	seedText, err := resolveSeedText(s.Seed, s.SeedFile)
+-	if err != nil {
+-		return err
+-	}
+-	if strings.TrimSpace(seedText) == "" {
+-		return fmt.Errorf("seed prompt is empty (use --seed or --seed-file)")
++	var seedCandidate gepaopt.Candidate
++	if strings.TrimSpace(s.SeedCandidate) != "" {
++		cand, err := loadSeedCandidateFile(s.SeedCandidate)
++		if err != nil {
++			return err
++		}
++		seedCandidate = cand
++		if len(seedCandidate) == 0 {
++			return fmt.Errorf("seed candidate is empty (check --seed-candidate)")
++		}
++	} else {
++		seedText, err := resolveSeedText(s.Seed, s.SeedFile)
++		if err != nil {
++			return err
++		}
++		if strings.TrimSpace(seedText) == "" {
++			return fmt.Errorf("seed prompt is empty (use --seed, --seed-file, or --seed-candidate)")
++		}
++		seedCandidate = gepaopt.Candidate{"prompt": seedText}
+ 	}
+ 
+ 	// Ensure JS-side engine creation resolves the same profile by default.
+@@ -184,18 +205,41 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
+ 	cfg := gepaopt.Config{
+ 		MaxEvalCalls:     s.MaxEvalCalls,
+ 		BatchSize:        s.BatchSize,
++		MergeProbability: s.MergeProb,
+ 		Objective:        s.Objective,
+ 		MaxSideInfoChars: s.MaxSideInfoChars,
+ 	}
++	if strings.TrimSpace(s.OptimizableKeys) != "" {
++		parts := strings.Split(s.OptimizableKeys, ",")
++		for _, p := range parts {
++			k := strings.TrimSpace(p)
++			if k != "" {
++				cfg.OptimizableKeys = append(cfg.OptimizableKeys, k)
++			}
++		}
++	}
++	cfg.ComponentSelector = strings.TrimSpace(s.ComponentSelector)
+ 
+ 	reflector := &gepaopt.Reflector{
+-		Engine:    engine,
+-		Objective: cfg.Objective,
++		Engine:        engine,
++		Objective:     cfg.Objective,
++		System:        cfg.ReflectionSystemPrompt,
++		Template:      cfg.ReflectionPromptTemplate,
++		MergeSystem:   cfg.MergeSystemPrompt,
++		MergeTemplate: cfg.MergePromptTemplate,
+ 	}
+ 
+ 	opt := gepaopt.NewOptimizer(cfg, evalFn, reflector)
++	if plugin.HasMerge() {
++		opt.SetMergeFunc(func(ctx context.Context, in gepaopt.MergeInput) (string, string, error) {
++			return plugin.Merge(in, pluginEvaluateOptions{
++				Profile:       profile,
++				EngineOptions: engineOptions,
++			})
++		})
++	}
+ 
+-	res, err := opt.Optimize(ctx, gepaopt.Candidate{"prompt": seedText}, examples)
++	res, err := opt.Optimize(ctx, seedCandidate, examples)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -206,15 +250,23 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
+ 	fmt.Fprintf(w, "Calls used: %d / %d\n", res.CallsUsed, s.MaxEvalCalls)
+ 	fmt.Fprintf(w, "Best mean score (over cached evals): %.6f (n=%d)\n", res.BestStats.MeanScore, res.BestStats.N)
+ 
+-	bestPrompt := res.BestCandidate["prompt"]
++	bestPrompt, hasPrompt := res.BestCandidate["prompt"]
+ 	if strings.TrimSpace(s.OutPrompt) != "" {
++		if !hasPrompt {
++			return fmt.Errorf("best candidate does not contain a 'prompt' key (use --out-report to capture the full candidate)")
++		}
+ 		if err := os.WriteFile(s.OutPrompt, []byte(bestPrompt), 0o644); err != nil {
+ 			return errors.Wrap(err, "failed to write out prompt")
+ 		}
+ 		fmt.Fprintf(w, "Wrote best prompt to: %s\n", s.OutPrompt)
+ 	} else {
+ 		fmt.Fprintln(w, "\n=== Best Prompt ===")
+-		fmt.Fprintln(w, bestPrompt)
++		if hasPrompt {
++			fmt.Fprintln(w, bestPrompt)
++		} else {
++			blob, _ := json.MarshalIndent(res.BestCandidate, "", "  ")
++			fmt.Fprintln(w, string(blob))
++		}
+ 	}
+ 
+ 	if strings.TrimSpace(s.OutReport) != "" {
+diff --git a/cmd/gepa-runner/plugin_loader.go b/cmd/gepa-runner/plugin_loader.go
+index dba9cd8..8ac4466 100644
+--- a/cmd/gepa-runner/plugin_loader.go
++++ b/cmd/gepa-runner/plugin_loader.go
+@@ -3,6 +3,7 @@ package main
+ import (
+ 	"encoding/json"
+ 	"fmt"
++	"sort"
+ 	"strings"
+ 
+ 	"github.com/dop251/goja"
+@@ -33,6 +34,7 @@ type optimizerPlugin struct {
+ 
+ 	evaluateFn goja.Callable
+ 	datasetFn  goja.Callable
++	mergeFn    goja.Callable
+ }
+ 
+ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
+@@ -86,6 +88,17 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
+ 		return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+ 	}
+ 
++	// merge() is optional.
++	var mergeFn goja.Callable
++	for _, key := range []string{"merge", "mergeCandidate", "mergePrompt"} {
++		if mv := instanceObj.Get(key); mv != nil && !goja.IsUndefined(mv) && !goja.IsNull(mv) {
++			if fn, ok := goja.AssertFunction(mv); ok {
++				mergeFn = fn
++				break
++			}
++		}
++	}
++
+ 	// dataset() is optional if dataset file is provided, but we’ll attempt to bind it here.
+ 	var datasetFn goja.Callable
+ 	if dv := instanceObj.Get("dataset"); dv != nil && !goja.IsUndefined(dv) && !goja.IsNull(dv) {
+@@ -107,6 +120,7 @@ func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[st
+ 		instance:   instanceObj,
+ 		evaluateFn: evaluateFn,
+ 		datasetFn:  datasetFn,
++		mergeFn:    mergeFn,
+ 	}
+ 
+ 	return p, meta, nil
+@@ -222,6 +236,60 @@ func (p *optimizerPlugin) Evaluate(
+ 	return er, nil
+ }
+ 
++func (p *optimizerPlugin) HasMerge() bool {
++	return p != nil && p.mergeFn != nil
++}
++
++func (p *optimizerPlugin) Merge(
++	in gepaopt.MergeInput,
++	opts pluginEvaluateOptions,
++) (string, string, error) {
++	if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
++		return "", "", fmt.Errorf("plugin merge: merge() not available")
++	}
++
++	input := map[string]any{
++		"candidateA": in.ParentA,
++		"candidateB": in.ParentB,
++		"paramKey":   in.ParamKey,
++		"paramA":     in.ParamA,
++		"paramB":     in.ParamB,
++		"sideInfoA":  in.SideInfoA,
++		"sideInfoB":  in.SideInfoB,
++	}
++	options := map[string]any{
++		"profile":       strings.TrimSpace(opts.Profile),
++		"engineOptions": opts.EngineOptions,
++		"tags":          opts.Tags,
++	}
++
++	ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
++	if err != nil {
++		return "", "", errors.Wrap(err, "plugin merge: call failed")
++	}
++
++	decoded, err := decodeJSReturnValue(ret)
++	if err != nil {
++		return "", "", errors.Wrap(err, "plugin merge: invalid return value")
++	}
++
++	merged, err := decodeMergeOutput(decoded, in.ParamKey)
++	if err != nil {
++		return "", "", err
++	}
++
++	raw := ""
++	switch x := decoded.(type) {
++	case string:
++		raw = x
++	default:
++		blob, _ := json.MarshalIndent(decoded, "", "  ")
++		raw = string(blob)
++	}
++
++	return merged, raw, nil
++}
++
+ // decodeJSReturnValue mirrors the cozo runner behavior:
+ // - if JS returns a string, attempt JSON parsing
+ // - if JS returns bytes, attempt JSON parsing
+@@ -269,6 +337,77 @@ func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+ 	}
+ }
+ 
++func decodeMergeOutput(v any, paramKey string) (string, error) {
++	paramKey = strings.TrimSpace(paramKey)
++	if paramKey == "" {
++		paramKey = "prompt"
++	}
++
++	readString := func(m map[string]any, key string) string {
++		vv, ok := m[key]
++		if !ok || vv == nil {
++			return ""
++		}
++		s, ok := vv.(string)
++		if !ok {
++			return ""
++		}
++		return strings.TrimSpace(s)
++	}
++
++	switch x := v.(type) {
++	case string:
++		out := strings.TrimSpace(x)
++		if out == "" {
++			return "", fmt.Errorf("merge returned empty string")
++		}
++		return out, nil
++	case map[string]any:
++		// Allow {candidate: {...}}.
++		if candRaw, ok := x["candidate"]; ok && candRaw != nil {
++			switch cm := candRaw.(type) {
++			case map[string]any:
++				if s := readString(cm, paramKey); s != "" {
++					return s, nil
++				}
++			case map[string]interface{}:
++				m := map[string]any{}
++				for k, vv := range cm {
++					m[k] = vv
++				}
++				if s := readString(m, paramKey); s != "" {
++					return s, nil
++				}
++			}
++		}
++
++		// Common direct keys.
++		for _, key := range []string{paramKey, "prompt", "merged", "mergedPrompt", "text"} {
++			if s := readString(x, key); s != "" {
++				return s, nil
++			}
++		}
++		return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
++	case map[string]interface{}:
++		m := map[string]any{}
++		for k, vv := range x {
++			m[k] = vv
++		}
++		return decodeMergeOutput(m, paramKey)
++	default:
++		return "", fmt.Errorf("merge must return a string or object, got %T", v)
++	}
++}
++
++func keysOf(m map[string]any) []string {
++	out := make([]string, 0, len(m))
++	for k := range m {
++		out = append(out, k)
++	}
++	sort.Strings(out)
++	return out
++}
++
+ func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
+ 	scoreRaw, ok := m["score"]
+ 	if !ok {
+diff --git a/cmd/gepa-runner/scripts/toy_math_optimizer.js b/cmd/gepa-runner/scripts/toy_math_optimizer.js
+index be6fa54..72a2c31 100644
+--- a/cmd/gepa-runner/scripts/toy_math_optimizer.js
++++ b/cmd/gepa-runner/scripts/toy_math_optimizer.js
+@@ -11,6 +11,15 @@ function resolveAssistantText(out) {
+     .trim();
+ }
+ 
++function extractTripleBacktickBlock(s) {
++  const text = String(s || "");
++  const m = text.match(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```/);
++  if (m && m[1]) {
++    return String(m[1]).trim();
++  }
++  return text.trim();
++}
++
+ function normalizeEngineOptions(ctx, options) {
+   const merged = (options && typeof options === "object") ? options : {};
+   const ctxOpts = (ctx && typeof ctx === "object") ? ctx : {};
+@@ -86,9 +95,75 @@ module.exports = plugins.defineOptimizerPlugin({
+       };
+     }
+ 
++    // Optional: custom prompt merge (crossover).
++    // If omitted, gepa-runner will use its built-in LLM merge template.
++    function merge(input, options) {
++      const inObj = (input && typeof input === "object") ? input : {};
++      const candidateA = (inObj.candidateA && typeof inObj.candidateA === "object") ? inObj.candidateA : {};
++      const candidateB = (inObj.candidateB && typeof inObj.candidateB === "object") ? inObj.candidateB : {};
++      const paramKey = (typeof inObj.paramKey === "string" && inObj.paramKey.trim()) ? inObj.paramKey.trim() : "prompt";
++
++      const a = (typeof inObj.paramA === "string" && inObj.paramA.trim())
++        ? inObj.paramA.trim()
++        : String(candidateA[paramKey] || candidateA.prompt || "").trim();
++      const b = (typeof inObj.paramB === "string" && inObj.paramB.trim())
++        ? inObj.paramB.trim()
++        : String(candidateB[paramKey] || candidateB.prompt || "").trim();
++
++      const sideA = (typeof inObj.sideInfoA === "string") ? inObj.sideInfoA : "";
++      const sideB = (typeof inObj.sideInfoB === "string") ? inObj.sideInfoB : "";
++
++      const prompt = [
++        "You are optimizing an instruction prompt for a math QA assistant.",
++        "Merge the two candidate instructions below into a single improved instruction.",
++        "Keep it concise and specific.",
++        "",
++        "Instruction A:",
++        "```",
++        a,
++        "```",
++        "",
++        "Instruction B:",
++        "```",
++        b,
++        "```",
++        "",
++        "Examples & feedback for A:",
++        "```",
++        sideA,
++        "```",
++        "",
++        "Examples & feedback for B:",
++        "```",
++        sideB,
++        "```",
++        "",
++        "Return the merged instruction within ``` blocks.",
++      ].join("\n");
++
++      const resolved = normalizeEngineOptions(ctx, options);
++      const engine = (resolved.engineOptions && Object.keys(resolved.engineOptions).length > 0)
++        ? gp.engines.fromConfig(resolved.engineOptions)
++        : gp.engines.fromProfile(resolved.profile || "", {});
++
++      const builder = gp.createBuilder().withEngine(engine);
++      const session = builder.buildSession();
++
++      const seed = gp.turns.newTurn({
++        blocks: [
++          gp.turns.newUserBlock(prompt),
++        ],
++      });
++
++      const out = session.run(seed, {});
++      const text = resolveAssistantText(out);
++      return extractTripleBacktickBlock(text);
++    }
++
+     return {
+       dataset: datasetFn,
+       evaluate,
++      merge,
+     };
+   },
+ });
+diff --git a/pkg/optimizer/gepa/config.go b/pkg/optimizer/gepa/config.go
+index 3bdeba2..5594c61 100644
+--- a/pkg/optimizer/gepa/config.go
++++ b/pkg/optimizer/gepa/config.go
+@@ -25,6 +25,37 @@ type Config struct {
+ 	// ReflectionPromptTemplate must include "<curr_param>" and "<side_info>" placeholders.
+ 	ReflectionPromptTemplate string
+ 
++	// MergeProbability is the probability of attempting a merge (crossover) step
++	// instead of a standard reflective mutation.
++	//
++	// 0 disables merging (default).
++	MergeProbability float64
++
++	// MergeSystemPrompt is the system prompt used for the merge proposer LLM.
++	// If empty, the ReflectionSystemPrompt (or the reflector default) is used.
++	MergeSystemPrompt string
++
++	// MergePromptTemplate must include "<param_a>", "<param_b>",
++	// "<side_info_a>", and "<side_info_b>" placeholders.
++	MergePromptTemplate string
++
++	// OptimizableKeys optionally restricts which candidate keys are eligible for mutation/merge.
++	//
++	// If empty, the optimizer defaults to using the keys present in the seed candidate.
++	//
++	// This is the primary mechanism to support multi-parameter optimization (e.g., multiple
++	// module prompts in a larger system).
++	OptimizableKeys []string
++
++	// ComponentSelector controls how many and which keys are updated per iteration.
++	//
++	// Supported values:
++	//  - "round_robin" (default): update one key per iteration, cycling through OptimizableKeys.
++	//  - "all": update all OptimizableKeys every iteration.
++	//
++	// Any other value falls back to "round_robin".
++	ComponentSelector string
++
+ 	// Objective is an optional natural-language description of what we are optimizing for.
+ 	Objective string
+ 
+@@ -60,6 +91,18 @@ func (c Config) withDefaults() Config {
+ 	if out.ReflectionPromptTemplate == "" {
+ 		out.ReflectionPromptTemplate = DefaultReflectionPromptTemplate
+ 	}
++	if out.MergeProbability < 0 {
++		out.MergeProbability = 0
++	}
++	if out.MergeSystemPrompt == "" {
++		out.MergeSystemPrompt = out.ReflectionSystemPrompt
++	}
++	if out.MergePromptTemplate == "" {
++		out.MergePromptTemplate = DefaultMergePromptTemplate
++	}
++	if out.ComponentSelector == "" {
++		out.ComponentSelector = "round_robin"
++	}
+ 	if out.Now == nil {
+ 		out.Now = time.Now
+ 	}
+diff --git a/pkg/optimizer/gepa/format.go b/pkg/optimizer/gepa/format.go
+index 03f8571..0e652cb 100644
+--- a/pkg/optimizer/gepa/format.go
++++ b/pkg/optimizer/gepa/format.go
+@@ -23,6 +23,30 @@ const DefaultReflectionPromptTemplate = "" +
+ 	"Read all the assistant responses and the corresponding feedback. Identify all niche and domain specific factual information about the task and include it in the instruction, as a lot of it may not be available to the assistant in the future. The assistant may have utilized a generalizable strategy to solve the task, if so, include that in the instruction as well.\n\n" +
+ 	"Provide the new instructions within ``` blocks."
+ 
++// DefaultMergePromptTemplate asks an LLM to merge two candidate instructions.
++// It MUST contain "<param_a>", "<param_b>", "<side_info_a>", and "<side_info_b>" placeholders.
++const DefaultMergePromptTemplate = "" +
++	"I have two different instructions for an assistant to perform the same task.\n" +
++	"Instruction A:\n" +
++	"```\n" +
++	"<param_a>\n" +
++	"```\n\n" +
++	"Instruction B:\n" +
++	"```\n" +
++	"<param_b>\n" +
++	"```\n\n" +
++	"Below are evaluation examples (inputs, assistant outputs, scores, and feedback) for each instruction.\n\n" +
++	"Examples for Instruction A:\n" +
++	"```\n" +
++	"<side_info_a>\n" +
++	"```\n\n" +
++	"Examples for Instruction B:\n" +
++	"```\n" +
++	"<side_info_b>\n" +
++	"```\n\n" +
++	"Your task is to write a single merged instruction that combines the best parts of A and B, fixes their failures, and stays concise and unambiguous.\n\n" +
++	"Provide the merged instruction within ``` blocks."
++
+ // FormatSideInfo renders a minibatch of evaluations into a markdown-ish text block.
+ // This text becomes the "<side_info>" input in the reflection prompt template.
+ func FormatSideInfo(examples []any, evals []ExampleEval, maxChars int) string {
+@@ -81,6 +105,51 @@ func FormatSideInfo(examples []any, evals []ExampleEval, maxChars int) string {
+ 	return b.String()
+ }
+ 
++// FormatSideInfoForKey is like FormatSideInfo, but (optionally) narrows Trace and Feedback
++// to the sub-field keyed by paramKey when those values are JSON objects.
++//
++// This is useful for multi-parameter (multi-module) optimization, where evaluators may
++// return per-module traces/feedback as an object keyed by the candidate parameter name.
++func FormatSideInfoForKey(examples []any, evals []ExampleEval, paramKey string, maxChars int) string {
++	paramKey = strings.TrimSpace(paramKey)
++	if paramKey == "" {
++		return FormatSideInfo(examples, evals, maxChars)
++	}
++
++	filtered := make([]ExampleEval, 0, len(evals))
++	for _, ev := range evals {
++		res := ev.Result
++		// If Trace is an object and contains this key, use the keyed sub-trace.
++		if sub, ok := pickKeyedSubvalue(res.Trace, paramKey); ok {
++			res.Trace = sub
++		}
++		// If Feedback is an object and contains this key, use the keyed sub-feedback.
++		if sub, ok := pickKeyedSubvalue(res.Feedback, paramKey); ok {
++			res.Feedback = sub
++		}
++		filtered = append(filtered, ExampleEval{ExampleIndex: ev.ExampleIndex, Result: res})
++	}
++
++	return FormatSideInfo(examples, filtered, maxChars)
++}
++
++func pickKeyedSubvalue(v any, key string) (any, bool) {
++	if v == nil {
++		return nil, false
++	}
++	switch m := v.(type) {
++	case map[string]any:
++		if vv, ok := m[key]; ok {
++			return vv, true
++		}
++	case map[string]interface{}:
++		if vv, ok := m[key]; ok {
++			return vv, true
++		}
++	}
++	return nil, false
++}
++
+ func writeAsPrettyJSON(b *bytes.Buffer, v any) {
+ 	blob, err := json.MarshalIndent(v, "", "  ")
+ 	if err != nil {
+diff --git a/pkg/optimizer/gepa/optimizer.go b/pkg/optimizer/gepa/optimizer.go
+index 4f8c66e..843fbf4 100644
+--- a/pkg/optimizer/gepa/optimizer.go
++++ b/pkg/optimizer/gepa/optimizer.go
+@@ -2,9 +2,12 @@ package gepa
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"fmt"
+ 	"math"
+ 	"math/rand"
++	"sort"
++	"strings"
+ 	"time"
+ )
+ 
+@@ -12,6 +15,25 @@ import (
+ // The exampleIndex is provided for caching and traceability.
+ type EvaluateFunc func(ctx context.Context, candidate Candidate, exampleIndex int, example any) (EvalResult, error)
+ 
++// MergeInput is passed to an optional MergeFunc hook.
++// It is intentionally string-first (for the prompt-like primary param), while still
++// providing full candidate maps for advanced merge logic.
++type MergeInput struct {
++	ParentA   Candidate `json:"parent_a"`
++	ParentB   Candidate `json:"parent_b"`
++	ParamKey  string    `json:"param_key"`
++	ParamA    string    `json:"param_a"`
++	ParamB    string    `json:"param_b"`
++	SideInfoA string    `json:"side_info_a"`
++	SideInfoB string    `json:"side_info_b"`
++}
++
++// MergeFunc can be provided by the caller to override how merges are performed.
++// It should return a new value for the optimizable parameter, plus a raw/debug string.
++//
++// If nil, the optimizer falls back to Reflector.Merge.
++type MergeFunc func(ctx context.Context, in MergeInput) (mergedParam string, raw string, err error)
++
+ // Optimizer runs a GEPA-style reflective evolutionary loop.
+ //
+ // This is intentionally “GEPA-inspired” rather than a 1:1 port of the Python reference.
+@@ -20,6 +42,7 @@ type Optimizer struct {
+ 	cfg       Config
+ 	eval      EvaluateFunc
+ 	reflector *Reflector
++	mergeFn   MergeFunc
+ 
+ 	rng       *rand.Rand
+ 	cache     map[string]map[int]EvalResult // candidateHash -> exampleIndex -> result
+@@ -27,13 +50,31 @@ type Optimizer struct {
+ 
+ 	// pool is append-only.
+ 	pool []*candidateNode
++
++	// paramKeys are the ordered candidate keys that can be optimized.
++	// Determined at Optimize() time from cfg.OptimizableKeys or the seed candidate.
++	paramKeys []string
+ }
+ 
+ type candidateNode struct {
+ 	ID        CandidateID
+ 	ParentID  CandidateID
++	Parent2ID CandidateID
+ 	Candidate Candidate
+ 	CreatedAt time.Time
++	Operation string
++
++	// NextParamIndex tracks which parameter will be updated next under the
++	// "round_robin" component selector.
++	NextParamIndex int
++
++	// LastUpdated records, per candidate key, the node id that last updated that key.
++	// This enables simple system-aware merges that can pick the newest version of each key
++	// from multiple parents.
++	LastUpdated map[string]CandidateID
++
++	// UpdatedKeys records which candidate keys were modified to create this node.
++	UpdatedKeys []string
+ 
+ 	// Evaluations is the subset of cached evaluations we’ve pulled into the node.
+ 	// The optimizer cache is the source of truth; this field is a convenience view.
+@@ -53,18 +94,36 @@ type Result struct {
+ type CandidateEntry struct {
+ 	ID            int            `json:"id"`
+ 	ParentID      int            `json:"parent_id"`
++	Parent2ID     int            `json:"parent2_id"` // optional (only set for merge children)
++	Operation     string         `json:"operation"`  // seed|mutate|merge
+ 	Hash          string         `json:"hash"`
+ 	CreatedAt     time.Time      `json:"created_at"`
+ 	Candidate     Candidate      `json:"candidate"`
+ 	GlobalStats   CandidateStats `json:"global_stats"`
+ 	EvalsCached   int            `json:"evals_cached"`
+ 	ReflectionRaw string         `json:"reflection_raw,omitempty"`
++	UpdatedKeys   []string       `json:"updated_keys,omitempty"`
+ }
+ 
+ // NewOptimizer constructs an optimizer.
+ func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimizer {
+ 	c := cfg.withDefaults()
+ 	r := rand.New(rand.NewSource(c.RandomSeed))
++	// Plumb config defaults into the reflector unless the caller overrides.
++	if reflector != nil {
++		if reflector.System == "" {
++			reflector.System = c.ReflectionSystemPrompt
++		}
++		if reflector.Template == "" {
++			reflector.Template = c.ReflectionPromptTemplate
++		}
++		if reflector.MergeSystem == "" {
++			reflector.MergeSystem = c.MergeSystemPrompt
++		}
++		if reflector.MergeTemplate == "" {
++			reflector.MergeTemplate = c.MergePromptTemplate
++		}
++	}
+ 	return &Optimizer{
+ 		cfg:       c,
+ 		eval:      eval,
+@@ -74,6 +133,15 @@ func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimize
+ 	}
+ }
+ 
++// SetMergeFunc installs an optional merge hook.
++// If not set (or set to nil), merges use Reflector.Merge.
++func (o *Optimizer) SetMergeFunc(fn MergeFunc) {
++	if o == nil {
++		return
++	}
++	o.mergeFn = fn
++}
++
+ // CallsUsed returns the number of evaluator calls consumed so far.
+ func (o *Optimizer) CallsUsed() int {
+ 	if o == nil {
+@@ -99,13 +167,28 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
+ 		return nil, fmt.Errorf("optimizer: dataset is empty")
+ 	}
+ 
++	keys, err := deriveOptimizableKeys(o.cfg, seed)
++	if err != nil {
++		return nil, err
++	}
++	o.paramKeys = keys
++
+ 	// Initialize pool with seed.
++	seedLastUpdated := map[string]CandidateID{}
++	for k := range seed {
++		seedLastUpdated[k] = 0
++	}
+ 	seedNode := &candidateNode{
+ 		ID:          0,
+ 		ParentID:    -1,
++		Parent2ID:   -1,
+ 		Candidate:   cloneCandidate(seed),
+ 		CreatedAt:   o.cfg.Now(),
+ 		Evaluations: map[int]EvalResult{},
++		Operation:   "seed",
++		// round_robin starts at the first key.
++		NextParamIndex: 0,
++		LastUpdated:    seedLastUpdated,
+ 	}
+ 	o.pool = append(o.pool, seedNode)
+ 
+@@ -131,12 +214,26 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
+ 			break
+ 		}
+ 
+-		// Plan evaluations for parent/child within remaining budget.
+-		// Worst case: we need to evaluate both parent and child on the same minibatch.
+-		// Parent may already be cached on some indices, so we conservatively size based on remaining.
++		useMerge := o.cfg.MergeProbability > 0 && len(o.pool) >= 2 && o.rng.Float64() < o.cfg.MergeProbability
++		var parent2 *candidateNode
++		if useMerge {
++			parent2 = o.selectParentDistinct(parent.ID)
++			if parent2 == nil {
++				useMerge = false
++			}
++		}
++
++		// Plan evaluations within remaining budget.
++		// Worst case:
++		//  - mutation: evaluate parent + child on the same minibatch  => 2 * batchSize
++		//  - merge: evaluate parentA + parentB + child on minibatch   => 3 * batchSize
++		mult := 2
++		if useMerge {
++			mult = 3
++		}
+ 		batchSize := o.cfg.BatchSize
+-		if batchSize*2 > remaining {
+-			batchSize = remaining / 2
++		if batchSize*mult > remaining {
++			batchSize = remaining / mult
+ 		}
+ 		if batchSize <= 0 {
+ 			break
+@@ -152,26 +249,100 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
+ 			return nil, err
+ 		}
+ 
+-		sideInfo := FormatSideInfo(examples, parentEvals, o.cfg.MaxSideInfoChars)
++		var parent2Stats CandidateStats
+ 
+-		// Mutate candidate (currently: optimize the "prompt" key if present; else first key).
+-		paramKey := primaryParamKey(parent.Candidate)
+-		current := parent.Candidate[paramKey]
++		childID := CandidateID(len(o.pool))
++		components := o.selectComponents(parent)
++		if len(components) == 0 {
++			break
++		}
+ 
+-		childText, rawReflection, err := o.reflector.Propose(ctx, current, sideInfo)
+-		if err != nil {
+-			return nil, err
++		var childCand Candidate
++		var childLastUpdated map[string]CandidateID
++		var rawReflection string
++		var operation string
++		var updatedKeys []string
++
++		if useMerge {
++			parent2Evals, err := o.ensureEvaluated(ctx, parent2, examples, batchIdx)
++			if err != nil {
++				return nil, err
++			}
++			parent2Stats = AggregateStats(parent2Evals)
++
++			// Start with a simple system-aware merge that picks the newest version of each key
++			// from the two parents. Then (optionally) run an LLM-based merge for the selected
++			// component(s).
++			childCand, childLastUpdated = o.systemAwareMerge(parent, parent2)
++			if childCand == nil {
++				childCand = cloneCandidate(parent.Candidate)
++			}
++			if childLastUpdated == nil {
++				childLastUpdated = cloneLastUpdated(parent.LastUpdated)
++			}
++
++			rawByKey := map[string]string{}
++			for _, key := range components {
++				sideInfoA := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
++				sideInfoB := FormatSideInfoForKey(examples, parent2Evals, key, o.cfg.MaxSideInfoChars)
++
++				mergedText, mergeRaw, err := o.proposeMerge(ctx, MergeInput{
++					ParentA:   cloneCandidate(parent.Candidate),
++					ParentB:   cloneCandidate(parent2.Candidate),
++					ParamKey:  key,
++					ParamA:    parent.Candidate[key],
++					ParamB:    parent2.Candidate[key],
++					SideInfoA: sideInfoA,
++					SideInfoB: sideInfoB,
++				})
++				if err != nil {
++					return nil, err
++				}
++				rawByKey[key] = mergeRaw
++				childCand[key] = mergedText
++				childLastUpdated[key] = childID
++				updatedKeys = append(updatedKeys, key)
++			}
++			rawReflection = encodeRawByKey(rawByKey)
++			operation = "merge"
++		} else {
++			childCand = cloneCandidate(parent.Candidate)
++			childLastUpdated = cloneLastUpdated(parent.LastUpdated)
++			rawByKey := map[string]string{}
++			for _, key := range components {
++				sideInfo := FormatSideInfoForKey(examples, parentEvals, key, o.cfg.MaxSideInfoChars)
++				current := parent.Candidate[key]
++
++				childText, raw, err := o.reflector.Propose(ctx, current, sideInfo)
++				if err != nil {
++					return nil, err
++				}
++				rawByKey[key] = raw
++				childCand[key] = childText
++				childLastUpdated[key] = childID
++				updatedKeys = append(updatedKeys, key)
++			}
++			rawReflection = encodeRawByKey(rawByKey)
++			operation = "mutate"
+ 		}
+-		childCand := cloneCandidate(parent.Candidate)
+-		childCand[paramKey] = childText
+ 
+ 		childNode := &candidateNode{
+-			ID:            CandidateID(len(o.pool)),
++			ID:            childID,
+ 			ParentID:      parent.ID,
++			Parent2ID:     -1,
+ 			Candidate:     childCand,
+ 			CreatedAt:     o.cfg.Now(),
+ 			Evaluations:   map[int]EvalResult{},
+ 			ReflectionRaw: rawReflection,
++			Operation:     operation,
++			LastUpdated:   childLastUpdated,
++			UpdatedKeys:   append([]string(nil), updatedKeys...),
++			// child continues from the parent(s) under round_robin.
++			NextParamIndex: parent.NextParamIndex,
++		}
++		if useMerge {
++			childNode.Parent2ID = parent2.ID
++			childNode.NextParamIndex = maxInt(parent.NextParamIndex, parent2.NextParamIndex)
+ 		}
+ 
+ 		childEvals, err := o.ensureEvaluated(ctx, childNode, examples, batchIdx)
+@@ -181,8 +352,15 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
+ 
+ 		parentStats := AggregateStats(parentEvals)
+ 		childStats := AggregateStats(childEvals)
++		baselineStats := parentStats
++		if useMerge {
++			// For merge, accept relative to the better of the two parents on this batch.
++			if parent2Stats.MeanScore > baselineStats.MeanScore {
++				baselineStats = parent2Stats
++			}
++		}
+ 
+-		if o.acceptChild(parentStats, childStats) {
++		if o.acceptChild(baselineStats, childStats) {
+ 			o.pool = append(o.pool, childNode)
+ 			// Update best based on global stats available so far.
+ 			if childGlobal := o.globalStats(childNode); childGlobal.MeanScore > o.globalStats(bestNode).MeanScore {
+@@ -198,12 +376,15 @@ func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any
+ 		entries = append(entries, CandidateEntry{
+ 			ID:            int(n.ID),
+ 			ParentID:      int(n.ParentID),
++			Parent2ID:     int(n.Parent2ID),
++			Operation:     n.Operation,
+ 			Hash:          candidateHash(n.Candidate),
+ 			CreatedAt:     n.CreatedAt,
+ 			Candidate:     cloneCandidate(n.Candidate),
+ 			GlobalStats:   o.globalStats(n),
+ 			EvalsCached:   len(o.cache[candidateHash(n.Candidate)]),
+ 			ReflectionRaw: n.ReflectionRaw,
++			UpdatedKeys:   append([]string(nil), n.UpdatedKeys...),
+ 		})
+ 	}
+ 
+@@ -297,6 +478,45 @@ func (o *Optimizer) selectParent() *candidateNode {
+ 	return o.pool[chosen]
+ }
+ 
++func (o *Optimizer) selectParentDistinct(exclude CandidateID) *candidateNode {
++	if o == nil || len(o.pool) < 2 {
++		return nil
++	}
++	// Try a few times using the same selection policy.
++	for i := 0; i < 10; i++ {
++		n := o.selectParent()
++		if n != nil && n.ID != exclude {
++			return n
++		}
++	}
++	// Fallback: pick uniformly among all nodes except exclude.
++	idx := o.rng.Intn(len(o.pool) - 1)
++	// Map idx into [0,len) skipping exclude.
++	for _, n := range o.pool {
++		if n.ID == exclude {
++			continue
++		}
++		if idx == 0 {
++			return n
++		}
++		idx--
++	}
++	return nil
++}
++
++func (o *Optimizer) proposeMerge(ctx context.Context, in MergeInput) (string, string, error) {
++	if o == nil {
++		return "", "", fmt.Errorf("proposeMerge: optimizer is nil")
++	}
++	if o.mergeFn != nil {
++		return o.mergeFn(ctx, in)
++	}
++	if o.reflector == nil {
++		return "", "", fmt.Errorf("proposeMerge: reflector is nil")
++	}
++	return o.reflector.Merge(ctx, in.ParamA, in.ParamB, in.SideInfoA, in.SideInfoB)
++}
++
+ func unionObjectiveKeys(vecs []ObjectiveScores) map[string]struct{} {
+ 	out := map[string]struct{}{}
+ 	for _, v := range vecs {
+@@ -435,6 +655,192 @@ func cloneCandidate(c Candidate) Candidate {
+ 	return out
+ }
+ 
++func cloneLastUpdated(m map[string]CandidateID) map[string]CandidateID {
++	if m == nil {
++		return map[string]CandidateID{}
++	}
++	out := make(map[string]CandidateID, len(m))
++	for k, v := range m {
++		out[k] = v
++	}
++	return out
++}
++
++func encodeRawByKey(rawByKey map[string]string) string {
++	if len(rawByKey) == 0 {
++		return ""
++	}
++	if len(rawByKey) == 1 {
++		for _, v := range rawByKey {
++			return v
++		}
++	}
++	blob, err := json.MarshalIndent(rawByKey, "", "  ")
++	if err != nil {
++		// best-effort fallback
++		parts := make([]string, 0, len(rawByKey))
++		for k, v := range rawByKey {
++			parts = append(parts, fmt.Sprintf("[%s]\n%s", k, v))
++		}
++		sort.Strings(parts)
++		return strings.Join(parts, "\n\n")
++	}
++	return string(blob)
++}
++
++func maxInt(a, b int) int {
++	if a > b {
++		return a
++	}
++	return b
++}
++
++func deriveOptimizableKeys(cfg Config, seed Candidate) ([]string, error) {
++	// Explicit list provided.
++	if len(cfg.OptimizableKeys) > 0 {
++		seen := map[string]struct{}{}
++		out := make([]string, 0, len(cfg.OptimizableKeys))
++		for _, raw := range cfg.OptimizableKeys {
++			k := strings.TrimSpace(raw)
++			if k == "" {
++				continue
++			}
++			if _, ok := seen[k]; ok {
++				continue
++			}
++			if _, ok := seed[k]; !ok {
++				return nil, fmt.Errorf("optimizer: optimizable key %q is not present in seed candidate", k)
++			}
++			seen[k] = struct{}{}
++			out = append(out, k)
++		}
++		if len(out) == 0 {
++			return nil, fmt.Errorf("optimizer: OptimizableKeys was provided but no valid keys were found")
++		}
++		return out, nil
++	}
++
++	// Default: deterministically use seed keys (prefer "prompt" first when present).
++	keys := make([]string, 0, len(seed))
++	for k := range seed {
++		keys = append(keys, k)
++	}
++	sort.Strings(keys)
++	if len(keys) == 0 {
++		return nil, fmt.Errorf("optimizer: seed candidate has no keys")
++	}
++	if _, ok := seed["prompt"]; ok {
++		// Move "prompt" to the front for backwards-compatible behavior.
++		out := make([]string, 0, len(keys))
++		out = append(out, "prompt")
++		for _, k := range keys {
++			if k == "prompt" {
++				continue
++			}
++			out = append(out, k)
++		}
++		return out, nil
++	}
++	return keys, nil
++}
++
++func (o *Optimizer) isOptimizableKey(k string) bool {
++	if o == nil {
++		return false
++	}
++	for _, kk := range o.paramKeys {
++		if kk == k {
++			return true
++		}
++	}
++	return false
++}
++
++// selectComponents chooses which candidate key(s) to update this iteration.
++//
++// Under the "round_robin" strategy, this method advances the parent's NextParamIndex.
++func (o *Optimizer) selectComponents(parent *candidateNode) []string {
++	if o == nil || parent == nil {
++		return nil
++	}
++	if len(o.paramKeys) == 0 {
++		k := primaryParamKey(parent.Candidate)
++		if strings.TrimSpace(k) == "" {
++			return nil
++		}
++		return []string{k}
++	}
++
++	switch strings.ToLower(strings.TrimSpace(o.cfg.ComponentSelector)) {
++	case "all":
++		out := make([]string, 0, len(o.paramKeys))
++		for _, k := range o.paramKeys {
++			if _, ok := parent.Candidate[k]; ok {
++				out = append(out, k)
++			}
++		}
++		return out
++	default: // round_robin
++		idx := parent.NextParamIndex
++		if idx < 0 {
++			idx = 0
++		}
++		// Find the next key that exists in the candidate.
++		for tries := 0; tries < len(o.paramKeys); tries++ {
++			k := o.paramKeys[(idx+tries)%len(o.paramKeys)]
++			if _, ok := parent.Candidate[k]; ok {
++				parent.NextParamIndex = (idx + tries + 1) % len(o.paramKeys)
++				return []string{k}
++			}
++		}
++		return nil
++	}
++}
++
++// systemAwareMerge performs a simple component-wise merge between two parents.
++// For optimizable keys, it chooses the parent's value whose key was updated more recently.
++//
++// This mirrors the idea in GEPA's "system-aware merge": if a component has evolved in one
++// parent more recently than the other, keep that newer component.
++func (o *Optimizer) systemAwareMerge(a, b *candidateNode) (Candidate, map[string]CandidateID) {
++	if o == nil || a == nil || b == nil {
++		return nil, nil
++	}
++
++	child := cloneCandidate(a.Candidate)
++	last := cloneLastUpdated(a.LastUpdated)
++
++	for k, vb := range b.Candidate {
++		// Always copy missing keys (even if not optimizable) to preserve candidate completeness.
++		va, okA := a.Candidate[k]
++		if !okA {
++			child[k] = vb
++			if lu, ok := b.LastUpdated[k]; ok {
++				last[k] = lu
++			}
++			continue
++		}
++
++		if !o.isOptimizableKey(k) {
++			// Keep A's value for non-optimizable keys.
++			_ = va
++			continue
++		}
++
++		luA := a.LastUpdated[k]
++		luB := b.LastUpdated[k]
++		if luB > luA {
++			child[k] = vb
++			last[k] = luB
++		} else {
++			// Keep A.
++			last[k] = luA
++		}
++	}
++
++	return child, last
++}
++
+ func primaryParamKey(c Candidate) string {
+ 	if c == nil {
+ 		return "prompt"
+diff --git a/pkg/optimizer/gepa/reflector.go b/pkg/optimizer/gepa/reflector.go
+index 4ef6fdd..73cc1da 100644
+--- a/pkg/optimizer/gepa/reflector.go
++++ b/pkg/optimizer/gepa/reflector.go
+@@ -12,10 +12,12 @@ import (
+ 
+ // Reflector runs the natural-language reflection step that proposes prompt mutations.
+ type Reflector struct {
+-	Engine    engine.Engine
+-	System    string
+-	Template  string
+-	Objective string
++	Engine        engine.Engine
++	System        string
++	Template      string
++	MergeSystem   string
++	MergeTemplate string
++	Objective     string
+ }
+ 
+ func (r *Reflector) Propose(ctx context.Context, currentInstruction string, sideInfo string) (string, string, error) {
+@@ -58,6 +60,53 @@ func (r *Reflector) Propose(ctx context.Context, currentInstruction string, side
+ 	return proposed, raw, nil
+ }
+ 
++func (r *Reflector) Merge(ctx context.Context, instructionA string, instructionB string, sideInfoA string, sideInfoB string) (string, string, error) {
++	if r == nil || r.Engine == nil {
++		return "", "", fmt.Errorf("reflector: engine is nil")
++	}
++
++	sys := strings.TrimSpace(r.MergeSystem)
++	if sys == "" {
++		sys = strings.TrimSpace(r.System)
++	}
++	if sys == "" {
++		sys = "You are an expert prompt engineer."
++	}
++
++	tmpl := r.MergeTemplate
++	if strings.TrimSpace(tmpl) == "" {
++		tmpl = DefaultMergePromptTemplate
++	}
++	if !strings.Contains(tmpl, "<param_a>") || !strings.Contains(tmpl, "<param_b>") || !strings.Contains(tmpl, "<side_info_a>") || !strings.Contains(tmpl, "<side_info_b>") {
++		return "", "", fmt.Errorf("reflector: merge template must include <param_a>, <param_b>, <side_info_a>, and <side_info_b>")
++	}
++
++	user := strings.ReplaceAll(tmpl, "<param_a>", instructionA)
++	user = strings.ReplaceAll(user, "<param_b>", instructionB)
++	user = strings.ReplaceAll(user, "<side_info_a>", sideInfoA)
++	user = strings.ReplaceAll(user, "<side_info_b>", sideInfoB)
++	if strings.TrimSpace(r.Objective) != "" {
++		user = fmt.Sprintf("Objective:\n%s\n\n%s", strings.TrimSpace(r.Objective), user)
++	}
++
++	turn := turns.NewTurnBuilder().
++		WithSystemPrompt(sys).
++		WithUserPrompt(user).
++		Build()
++
++	out, err := r.Engine.RunInference(ctx, turn)
++	if err != nil {
++		return "", "", fmt.Errorf("reflector: inference failed: %w", err)
++	}
++
++	raw := ExtractAssistantText(out)
++	proposed := extractTripleBacktickBlock(raw)
++	if strings.TrimSpace(proposed) == "" {
++		proposed = strings.TrimSpace(raw)
++	}
++	return proposed, raw, nil
++}
++
+ func ExtractAssistantText(t *turns.Turn) string {
+ 	if t == nil {
+ 		return ""

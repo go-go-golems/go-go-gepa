@@ -1,0 +1,120 @@
+diff --git a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/pkg/optimizer/gepa/reflector.go b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/optimizer/gepa/reflector.go
+index 73cc1da..bca60cf 100644
+--- a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/pkg/optimizer/gepa/reflector.go
++++ b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/optimizer/gepa/reflector.go
+@@ -3,7 +3,6 @@ package gepa
+ import (
+ 	"context"
+ 	"fmt"
+-	"regexp"
+ 	"strings"
+ 
+ 	"github.com/go-go-golems/geppetto/pkg/inference/engine"
+@@ -12,12 +11,10 @@ import (
+ 
+ // Reflector runs the natural-language reflection step that proposes prompt mutations.
+ type Reflector struct {
+-	Engine        engine.Engine
+-	System        string
+-	Template      string
+-	MergeSystem   string
+-	MergeTemplate string
+-	Objective     string
++	Engine    engine.Engine
++	System    string
++	Template  string
++	Objective string
+ }
+ 
+ func (r *Reflector) Propose(ctx context.Context, currentInstruction string, sideInfo string) (string, string, error) {
+@@ -60,53 +57,6 @@ func (r *Reflector) Propose(ctx context.Context, currentInstruction string, side
+ 	return proposed, raw, nil
+ }
+ 
+-func (r *Reflector) Merge(ctx context.Context, instructionA string, instructionB string, sideInfoA string, sideInfoB string) (string, string, error) {
+-	if r == nil || r.Engine == nil {
+-		return "", "", fmt.Errorf("reflector: engine is nil")
+-	}
+-
+-	sys := strings.TrimSpace(r.MergeSystem)
+-	if sys == "" {
+-		sys = strings.TrimSpace(r.System)
+-	}
+-	if sys == "" {
+-		sys = "You are an expert prompt engineer."
+-	}
+-
+-	tmpl := r.MergeTemplate
+-	if strings.TrimSpace(tmpl) == "" {
+-		tmpl = DefaultMergePromptTemplate
+-	}
+-	if !strings.Contains(tmpl, "<param_a>") || !strings.Contains(tmpl, "<param_b>") || !strings.Contains(tmpl, "<side_info_a>") || !strings.Contains(tmpl, "<side_info_b>") {
+-		return "", "", fmt.Errorf("reflector: merge template must include <param_a>, <param_b>, <side_info_a>, and <side_info_b>")
+-	}
+-
+-	user := strings.ReplaceAll(tmpl, "<param_a>", instructionA)
+-	user = strings.ReplaceAll(user, "<param_b>", instructionB)
+-	user = strings.ReplaceAll(user, "<side_info_a>", sideInfoA)
+-	user = strings.ReplaceAll(user, "<side_info_b>", sideInfoB)
+-	if strings.TrimSpace(r.Objective) != "" {
+-		user = fmt.Sprintf("Objective:\n%s\n\n%s", strings.TrimSpace(r.Objective), user)
+-	}
+-
+-	turn := turns.NewTurnBuilder().
+-		WithSystemPrompt(sys).
+-		WithUserPrompt(user).
+-		Build()
+-
+-	out, err := r.Engine.RunInference(ctx, turn)
+-	if err != nil {
+-		return "", "", fmt.Errorf("reflector: inference failed: %w", err)
+-	}
+-
+-	raw := ExtractAssistantText(out)
+-	proposed := extractTripleBacktickBlock(raw)
+-	if strings.TrimSpace(proposed) == "" {
+-		proposed = strings.TrimSpace(raw)
+-	}
+-	return proposed, raw, nil
+-}
+-
+ func ExtractAssistantText(t *turns.Turn) string {
+ 	if t == nil {
+ 		return ""
+@@ -127,12 +77,30 @@ func ExtractAssistantText(t *turns.Turn) string {
+ 	return strings.TrimSpace(strings.Join(parts, "\n"))
+ }
+ 
+-var tripleBacktickRe = regexp.MustCompile("(?s)```(?:[a-zA-Z0-9_-]+)?\\s*(.*?)\\s*```")
+-
+ func extractTripleBacktickBlock(s string) string {
+-	m := tripleBacktickRe.FindStringSubmatch(s)
+-	if len(m) >= 2 {
+-		return strings.TrimSpace(m[1])
++	start := strings.Index(s, "```")
++	if start < 0 {
++		return ""
++	}
++	rest := s[start+3:]
++	end := strings.Index(rest, "```")
++	if end < 0 {
++		return ""
+ 	}
+-	return ""
++
++	block := strings.TrimSpace(rest[:end])
++	if block == "" {
++		return ""
++	}
++
++	// Strip common fenced language tags only when they are on a dedicated first line.
++	if i := strings.Index(block, "\n"); i > 0 {
++		firstLine := strings.ToLower(strings.TrimSpace(block[:i]))
++		switch firstLine {
++		case "text", "txt", "markdown", "md", "yaml", "yml", "json":
++			block = strings.TrimSpace(block[i+1:])
++		}
++	}
++
++	return block
+ }

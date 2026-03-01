@@ -1,0 +1,219 @@
+
+  # run - Run one candidate against one input using plugin run()              
+                                                                              
+  Run a single candidate with a single input payload.                         
+                                                                              
+  Required: --script PATH      JS optimizer plugin script --config PATH       
+  Candidate config YAML (gepa.candidate-run/v2) --input-file PATH  Input      
+  payload                                                                     
+  file (JSON/YAML object)                                                     
+                                                                              
+  Config YAML must not include script/input/output routing.                   
+                                                                              
+  For more help, run: gepa-runner help run                                    
+                                                                              
+  Run gepa-runner help --ui to open the interactive help TUI.                 
+                                                                              
+  ## Usage:                                                                   
+                                                                              
+  gepa-runner candidate run [flags]                                           
+                                                                              
+  ## Flags:                                                                   
+                                                                              
+                             --candidate-id    Override candidate_id from     
+  config metadata - <string>                                                  
+                                   --config    Path to candidate-run YAML     
+  config - <string>                                                           
+                                    --debug    Debug mode - show parsed layers -
+  <bool>                                                                      
+                                 -h, --help    help for run                   
+                               --input-file    Path to run input file (JSON or
+  YAML object) - <string>                                                     
+                               --out-result    Optional file path to write    
+  full run result JSON - <string>                                             
+                            --output-format    Output format: json|yaml|text| 
+  table - <string> (default "json")                                           
+                                   --record    Persist candidate run row to   
+  SQLite - <bool>                                                             
+                                --record-db    SQLite file path for candidate 
+  run records - <string> (default ".gepa-runner/runs.sqlite")                 
+                          --reflection-used    Override reflection_used from  
+  config metadata - <string>                                                  
+                                   --script    Path to JS optimizer plugin    
+  (descriptor) - <string>                                                     
+                                     --tags    Comma-separated tags key=value,
+  key=value (merged with config tags) - <string>                              
+                                --long-help    Show long help                 
+                                                                              
+  ## AI Chat settings:                                                        
+                                                                              
+                              --ai-api-type    The provider type to use for   
+  chat. Prefer profile selection (--profile with `--profile-registries` /     
+  `PINOCCHIO_PROFILE_REGISTRIES`) for routine configuration; this direct      
+  override is a compatibility escape hatch during profile-registry migration. -
+  <choice> (openai,openai-responses,claude,gemini) (default "openai")         
+                       --ai-cache-directory    Directory to store cache files 
+  (for disk cache) - <string>                                                 
+                     --ai-cache-max-entries    Maximum number of entries in   
+  cache (for memory cache) - <int> (default 1000)                             
+                        --ai-cache-max-size    Maximum size of cache in bytes 
+  (for disk cache) - <int> (default 1073741824)                               
+                            --ai-cache-type    Type of caching to use for chat
+  responses (none, memory, or disk) - <choice> (none,memory,disk) (default    
+  "none")                                                                     
+                                --ai-engine    The model to use for chat.     
+  Prefer profile selection (--profile with `--profile-registries` /           
+  `PINOCCHIO_PROFILE_REGISTRIES`) for routine configuration; this direct      
+  override is a compatibility escape hatch during profile-registry migration. -
+  <string> (default "gpt-4")                                                  
+                   --ai-max-response-tokens    Maximum number of tokens in the
+  response - <int>                                                            
+                                  --ai-stop    Stop sequences for response    
+  generation - <stringList>                                                   
+         --ai-structured-output-description    Structured output schema       
+  description sent to providers - <string>                                    
+                --ai-structured-output-mode    Structured output mode for     
+  provider-native response shaping - <choice> (off,json_schema) (default      
+  "off")                                                                      
+                --ai-structured-output-name    Structured output schema name  
+  sent to providers - <string>                                                
+       --ai-structured-output-require-valid    Fail the request if structured 
+  output configuration is invalid or unsupported - <bool>                     
+              --ai-structured-output-schema    JSON object string for         
+  structured output schema - <string>                                         
+              --ai-structured-output-strict    Request strict structured      
+  output validation when provider supports it - <bool> (default true)         
+                           --ai-temperature    Temperature for response       
+  generation - <float> (default 0.7)                                          
+                                 --ai-top-p    Top-p sampling value - <float> 
+  (default 1)                                                                 
+                                                                              
+  ## AI client flags:                                                         
+                                                                              
+                             --organization    organization - <string>        
+                                  --timeout    timeout (in seconds) - <int>   
+  (default 60)                                                                
+                               --user-agent    user agent - <string>          
+                                                                              
+  ## Claude chat completion API flags:                                        
+                                                                              
+                           --claude-api-key    API key - <string>             
+                          --claude-base-url    base URL - <string> (default   
+  "https://api.anthropic.com")                                                
+                             --claude-top-k    Claude top k sampling - <int>  
+  (default 1)                                                                 
+                           --claude-user-id    Claude user ID - <string>      
+                                                                              
+  ## Gemini chat API flags:                                                   
+                                                                              
+                           --gemini-api-key    API key - <string>             
+                          --gemini-base-url    base URL - <string> (default   
+  "https://generativelanguage.googleapis.com/")                               
+                                                                              
+  ## OpenAI chat completion API flags:                                        
+                                                                              
+                           --openai-api-key    API key - <string>             
+                          --openai-base-url    base URL - <string> (default   
+  "https://api.openai.com/v1")                                                
+                 --openai-frequency-penalty    OpenAI chat completion         
+  frequency penalty - <float>                                                 
+       --openai-include-reasoning-encrypted    Include encrypted reasoning    
+  content for reuse across stateless turns - <bool>                           
+                        --openai-logit-bias    OpenAI chat completion logit   
+  bias - <keyValue>                                                           
+                                 --openai-n    OpenAI chat completion n -     
+  <int> (default 1)                                                           
+               --openai-parallel-tool-calls    Hint for parallel tool         
+  execution when using Responses API - <bool>                                 
+                  --openai-presence-penalty    OpenAI chat completion presence
+  penalty - <float>                                                           
+                  --openai-reasoning-effort    Reasoning effort level for     
+  Responses API models - <choice> (low,medium,high) (default "medium")        
+                 --openai-reasoning-summary    Request a public reasoning     
+  summary (auto to enable) - <choice> (,auto) (default "auto")                
+              --openai-stream-include-usage    Request usage in streaming     
+  events when supported - <bool> (default true)                               
+                                                                              
+  ## Embeddings generation settings:                                          
+                                                                              
+               --embeddings-cache-directory    Directory to store cache files 
+  (for disk cache) - <string>                                                 
+             --embeddings-cache-max-entries    Maximum number of entries in   
+  cache (for memory cache) - <int> (default 1000)                             
+                --embeddings-cache-max-size    Maximum size of cache in bytes 
+  (for disk cache) - <int> (default 1073741824)                               
+                    --embeddings-cache-type    Type of caching to use for     
+  embeddings (none, memory, or disk) - <choice> (none,memory,file) (default   
+  "none")                                                                     
+                    --embeddings-dimensions    The output dimension of the    
+  embeddings (384 for Ollama all-minilm, 1536 for OpenAI text-embedding-3-    
+  small) - <int> (default 1536)                                               
+                        --embeddings-engine    The model to use for embeddings
+  generation - <string> (default "text-embedding-3-small")                    
+                          --embeddings-type    The provider type to use for   
+  embeddings - <choice> (openai,ollama) (default "openai")                    
+                                                                              
+  ## Inference override settings:                                             
+                                                                              
+            --inference-max-response-tokens    Override max output tokens for 
+  this inference call - <int>                                                 
+               --inference-reasoning-effort    Reasoning effort level. Maps to
+  OpenAI Responses reasoning.effort.                                          
+     - <choice> (low,medium,high)                                             
+              --inference-reasoning-summary    Reasoning summary mode. Maps to
+  OpenAI Responses reasoning.summary.                                         
+     - <choice> (auto,concise,detailed)                                       
+                           --inference-seed    Seed for reproducibility       
+  (OpenAI Chat Completions) - <int>                                           
+                           --inference-stop    Override stop sequences for    
+  this inference call - <stringList>                                          
+                    --inference-temperature    Override temperature for this  
+  inference call - <float>                                                    
+                --inference-thinking-budget    Token budget for model         
+  thinking/reasoning. Maps to Claude thinking.budget_tokens and OpenAI        
+  Responses reasoning.max_tokens.                                             
+     - <int>                                                                  
+                          --inference-top-p    Override top-p sampling for    
+  this inference call - <float>                                               
+                                                                              
+  ## Profile settings:                                                        
+                                                                              
+                                  --profile    Load the profile - <string>    
+                       --profile-registries    Comma-separated profile        
+  registry sources (yaml/sqlite/sqlite-dsn) - <string>                        
+                                                                              
+  ## General purpose command options:                                         
+                                                                              
+                              --config-file    Explicit config file path to   
+  load via middlewares - <string>                                             
+                      --print-parsed-fields    Print the parsed fields -      
+  <bool>                                                                      
+                             --print-schema    Print the command's schema -   
+  <bool>                                                                      
+                               --print-yaml    Print the command's YAML -     
+  <bool>                                                                      
+                                                                              
+  ## Global flags:                                                            
+                                                                              
+                                 --log-file    Log file (default: stderr)     
+                               --log-format    Log format (json, text)        
+  (default "text")                                                            
+                                --log-level    Log level (trace, debug, info, 
+  warn, error, fatal) (default "info")                                        
+                            --log-to-stdout    Log to stdout even when log-   
+  file is set                                                                 
+                        --logstash-app-name    Application name for Logstash  
+  logs (default "pinocchio")                                                  
+                         --logstash-enabled    Enable logging to Logstash     
+                     --logstash-environment    Environment name for Logstash  
+  logs (development, staging, production) (default "development")             
+                            --logstash-host    Logstash host (default         
+  "logstash")                                                                 
+                            --logstash-port    Logstash port (default 5044)   
+                        --logstash-protocol    Logstash protocol (tcp, udp)   
+  (default "tcp")                                                             
+                              --with-caller    Log caller information         
+                                                                              
+  Use gepa-runner candidate run --help --long-help for information about all  
+  flags.                                                                      
+

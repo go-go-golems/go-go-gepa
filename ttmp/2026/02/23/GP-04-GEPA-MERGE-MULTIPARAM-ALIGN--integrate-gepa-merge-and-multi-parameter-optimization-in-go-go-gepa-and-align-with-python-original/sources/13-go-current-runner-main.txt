@@ -1,0 +1,280 @@
+     1	package main
+     2	
+     3	import (
+     4		"context"
+     5		"encoding/json"
+     6		"fmt"
+     7		"io"
+     8		"os"
+     9		"path/filepath"
+    10		"strings"
+    11	
+    12		clay "github.com/go-go-golems/clay/pkg"
+    13		"github.com/go-go-golems/geppetto/pkg/inference/engine/factory"
+    14		geppettosections "github.com/go-go-golems/geppetto/pkg/sections"
+    15		"github.com/go-go-golems/glazed/pkg/cli"
+    16		"github.com/go-go-golems/glazed/pkg/cmds"
+    17		"github.com/go-go-golems/glazed/pkg/cmds/fields"
+    18		"github.com/go-go-golems/glazed/pkg/cmds/logging"
+    19		"github.com/go-go-golems/glazed/pkg/cmds/values"
+    20		"github.com/go-go-golems/glazed/pkg/help"
+    21		help_cmd "github.com/go-go-golems/glazed/pkg/help/cmd"
+    22		gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
+    23		"github.com/pkg/errors"
+    24		"github.com/rs/zerolog/log"
+    25		"github.com/spf13/cobra"
+    26		"gopkg.in/yaml.v3"
+    27	)
+    28	
+    29	var rootCmd = &cobra.Command{
+    30		Use:   "gepa-runner",
+    31		Short: "GEPA-style prompt optimization on top of Geppetto + JS evaluators",
+    32		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+    33			return logging.InitLoggerFromCobra(cmd)
+    34		},
+    35	}
+    36	
+    37	type OptimizeCommand struct {
+    38		*cmds.CommandDescription
+    39	}
+    40	
+    41	var _ cmds.WriterCommand = (*OptimizeCommand)(nil)
+    42	
+    43	type OptimizeSettings struct {
+    44		ScriptPath       string `glazed:"script"`
+    45		DatasetPath      string `glazed:"dataset"`
+    46		Seed             string `glazed:"seed"`
+    47		SeedFile         string `glazed:"seed-file"`
+    48		Objective        string `glazed:"objective"`
+    49		MaxEvalCalls     int    `glazed:"max-evals"`
+    50		BatchSize        int    `glazed:"batch-size"`
+    51		MaxSideInfoChars int    `glazed:"max-side-info-chars"`
+    52		OutPrompt        string `glazed:"out-prompt"`
+    53		OutReport        string `glazed:"out-report"`
+    54		Record           bool   `glazed:"record"`
+    55		RecordDB         string `glazed:"record-db"`
+    56		Debug            bool   `glazed:"debug"`
+    57	}
+    58	
+    59	func NewOptimizeCommand() (*OptimizeCommand, error) {
+    60		geppettoSections, err := geppettosections.CreateGeppettoSections()
+    61		if err != nil {
+    62			return nil, errors.Wrap(err, "failed to create geppetto parameter layer")
+    63		}
+    64	
+    65		description := cmds.NewCommandDescription(
+    66			"optimize",
+    67			cmds.WithShort("Run a GEPA-style reflective prompt evolution loop"),
+    68			cmds.WithFlags(
+    69				fields.New("script", fields.TypeString, fields.WithHelp("Path to JS optimizer plugin (descriptor)"), fields.WithRequired(true)),
+    70				fields.New("dataset", fields.TypeString, fields.WithHelp("Path to dataset (.json or .jsonl). Optional if plugin provides dataset().")),
+    71				fields.New("seed", fields.TypeString, fields.WithHelp("Seed prompt text (overrides --seed-file)")),
+    72				fields.New("seed-file", fields.TypeString, fields.WithHelp("Path to seed prompt file")),
+    73				fields.New("objective", fields.TypeString, fields.WithHelp("Natural-language optimization objective (used in reflection prompt)")),
+    74				fields.New("max-evals", fields.TypeInteger, fields.WithHelp("Max evaluator calls (each example eval counts as 1)"), fields.WithDefault(200)),
+    75				fields.New("batch-size", fields.TypeInteger, fields.WithHelp("Minibatch size per iteration"), fields.WithDefault(8)),
+    76				fields.New("max-side-info-chars", fields.TypeInteger, fields.WithHelp("Cap formatted side-info chars passed to reflection LLM (0 = uncapped)"), fields.WithDefault(8000)),
+    77				fields.New("out-prompt", fields.TypeString, fields.WithHelp("Write best prompt to this file (optional)")),
+    78				fields.New("out-report", fields.TypeString, fields.WithHelp("Write JSON optimization report to this file (optional)")),
+    79				fields.New("record", fields.TypeBool, fields.WithHelp("Persist run/candidate/eval metrics to SQLite"), fields.WithDefault(false)),
+    80				fields.New("record-db", fields.TypeString, fields.WithHelp("SQLite file path for GEPA run metrics"), fields.WithDefault(".gepa-runner/runs.sqlite")),
+    81				fields.New("debug", fields.TypeBool, fields.WithHelp("Debug mode - show parsed layers"), fields.WithDefault(false)),
+    82			),
+    83			cmds.WithSections(geppettoSections...),
+    84		)
+    85	
+    86		return &OptimizeCommand{CommandDescription: description}, nil
+    87	}
+    88	
+    89	func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Values, w io.Writer) error {
+    90		s := &OptimizeSettings{}
+    91		if err := parsedValues.DecodeSectionInto(values.DefaultSlug, s); err != nil {
+    92			return errors.Wrap(err, "failed to initialize settings")
+    93		}
+    94	
+    95		if s.Debug {
+    96			b, err := yaml.Marshal(parsedValues)
+    97			if err != nil {
+    98				return err
+    99			}
+   100			fmt.Fprintln(w, "=== Parsed Layers Debug ===")
+   101			fmt.Fprintln(w, string(b))
+   102			fmt.Fprintln(w, "==========================")
+   103			return nil
+   104		}
+   105	
+   106		if strings.TrimSpace(s.ScriptPath) == "" {
+   107			return fmt.Errorf("--script is required")
+   108		}
+   109	
+   110		seedText, err := resolveSeedText(s.Seed, s.SeedFile)
+   111		if err != nil {
+   112			return err
+   113		}
+   114		if strings.TrimSpace(seedText) == "" {
+   115			return fmt.Errorf("seed prompt is empty (use --seed or --seed-file)")
+   116		}
+   117	
+   118		// Ensure JS-side engine creation resolves the same profile by default.
+   119		profile, err := resolvePinocchioProfile(parsedValues)
+   120		if err != nil {
+   121			return errors.Wrap(err, "failed to resolve pinocchio profile")
+   122		}
+   123		if err := applyProfileEnvironment(profile, parsedValues); err != nil {
+   124			return errors.Wrap(err, "failed to apply profile environment")
+   125		}
+   126	
+   127		engineOptions, err := resolveEngineOptions(parsedValues)
+   128		if err != nil {
+   129			return errors.Wrap(err, "failed to resolve engine options from parsed settings")
+   130		}
+   131	
+   132		// Reflection LLM engine (Go side).
+   133		engine, err := factory.NewEngineFromParsedValues(parsedValues)
+   134		if err != nil {
+   135			return errors.Wrap(err, "failed to create reflection engine from parsed values")
+   136		}
+   137	
+   138		absScript, err := filepath.Abs(s.ScriptPath)
+   139		if err != nil {
+   140			return err
+   141		}
+   142		scriptRoot := filepath.Dir(absScript)
+   143	
+   144		// Load JS plugin.
+   145		jsrt, err := newJSRuntime(scriptRoot)
+   146		if err != nil {
+   147			return err
+   148		}
+   149		defer jsrt.Close()
+   150	
+   151		hostContext := map[string]any{
+   152			"app":           "gepa-runner",
+   153			"scriptPath":    filepath.ToSlash(absScript),
+   154			"scriptRoot":    filepath.ToSlash(scriptRoot),
+   155			"profile":       profile,
+   156			"engineOptions": engineOptions,
+   157		}
+   158		plugin, meta, err := loadOptimizerPlugin(jsrt, absScript, hostContext)
+   159		if err != nil {
+   160			return err
+   161		}
+   162		log.Info().Str("plugin_id", meta.ID).Str("plugin_name", meta.Name).Msg("Loaded optimizer plugin")
+   163	
+   164		// Load dataset.
+   165		var examples []any
+   166		if strings.TrimSpace(s.DatasetPath) != "" {
+   167			examples, err = loadDataset(s.DatasetPath)
+   168			if err != nil {
+   169				return err
+   170			}
+   171		} else {
+   172			examples, err = plugin.Dataset()
+   173			if err != nil {
+   174				return err
+   175			}
+   176		}
+   177		if len(examples) == 0 {
+   178			return fmt.Errorf("dataset is empty")
+   179		}
+   180	
+   181		evalFn := func(ctx context.Context, cand gepaopt.Candidate, exampleIndex int, example any) (gepaopt.EvalResult, error) {
+   182			return plugin.Evaluate(cand, exampleIndex, example, pluginEvaluateOptions{
+   183				Profile:       profile,
+   184				EngineOptions: engineOptions,
+   185			})
+   186		}
+   187	
+   188		cfg := gepaopt.Config{
+   189			MaxEvalCalls:     s.MaxEvalCalls,
+   190			BatchSize:        s.BatchSize,
+   191			Objective:        s.Objective,
+   192			MaxSideInfoChars: s.MaxSideInfoChars,
+   193		}
+   194	
+   195		reflector := &gepaopt.Reflector{
+   196			Engine:    engine,
+   197			Objective: cfg.Objective,
+   198		}
+   199	
+   200		opt := gepaopt.NewOptimizer(cfg, evalFn, reflector)
+   201	
+   202		var recorder *runRecorder
+   203		if s.Record {
+   204			recordDB := strings.TrimSpace(s.RecordDB)
+   205			if recordDB == "" {
+   206				recordDB = ".gepa-runner/runs.sqlite"
+   207			}
+   208			recorder, err = newRunRecorder(runRecorderConfig{
+   209				DBPath:      recordDB,
+   210				Mode:        "optimize",
+   211				PluginID:    meta.ID,
+   212				PluginName:  meta.Name,
+   213				Profile:     profile,
+   214				DatasetSize: len(examples),
+   215				Objective:   s.Objective,
+   216				MaxEvals:    s.MaxEvalCalls,
+   217				BatchSize:   s.BatchSize,
+   218				SeedPrompt:  seedText,
+   219			})
+   220			if err != nil {
+   221				return errors.Wrap(err, "failed to create run recorder")
+   222			}
+   223		}
+   224		finalizeRun := func(runErr error) error {
+   225			if recorder == nil {
+   226				return runErr
+   227			}
+   228			closeErr := recorder.Close(runErr == nil, runErr)
+   229			if runErr != nil {
+   230				return runErr
+   231			}
+   232			return closeErr
+   233		}
+   234	
+   235		res, err := opt.Optimize(ctx, gepaopt.Candidate{"prompt": seedText}, examples)
+   236		if err != nil {
+   237			return finalizeRun(err)
+   238		}
+   239		if recorder != nil {
+   240			if err := recorder.RecordOptimizeResult(res); err != nil {
+   241				return finalizeRun(err)
+   242			}
+   243		}
+   244	
+   245		// Output summary.
+   246		fmt.Fprintf(w, "Plugin: %s (%s)\n", meta.Name, meta.ID)
+   247		fmt.Fprintf(w, "Dataset: %d examples\n", len(examples))
+   248		fmt.Fprintf(w, "Calls used: %d / %d\n", res.CallsUsed, s.MaxEvalCalls)
+   249		fmt.Fprintf(w, "Best mean score (over cached evals): %.6f (n=%d)\n", res.BestStats.MeanScore, res.BestStats.N)
+   250	
+   251		bestPrompt := res.BestCandidate["prompt"]
+   252		if strings.TrimSpace(s.OutPrompt) != "" {
+   253			if err := os.WriteFile(s.OutPrompt, []byte(bestPrompt), 0o644); err != nil {
+   254				return finalizeRun(errors.Wrap(err, "failed to write out prompt"))
+   255			}
+   256			fmt.Fprintf(w, "Wrote best prompt to: %s\n", s.OutPrompt)
+   257		} else {
+   258			fmt.Fprintln(w, "\n=== Best Prompt ===")
+   259			fmt.Fprintln(w, bestPrompt)
+   260		}
+   261	
+   262		if strings.TrimSpace(s.OutReport) != "" {
+   263			blob, _ := json.MarshalIndent(res, "", "  ")
+   264			if err := os.WriteFile(s.OutReport, blob, 0o644); err != nil {
+   265				return finalizeRun(errors.Wrap(err, "failed to write out report"))
+   266			}
+   267			fmt.Fprintf(w, "Wrote report to: %s\n", s.OutReport)
+   268		}
+   269	
+   270		return finalizeRun(nil)
+   271	}
+   272	
+   273	func main() {
+   274		err := clay.InitGlazed("pinocchio", rootCmd)
+   275		cobra.CheckErr(err)
+   276	
+   277		helpSystem := help.NewHelpSystem()
+   278		help_cmd.SetupCobraRootCommand(helpSystem, rootCmd)
+   279		cobra.CheckErr(err)
+   280	

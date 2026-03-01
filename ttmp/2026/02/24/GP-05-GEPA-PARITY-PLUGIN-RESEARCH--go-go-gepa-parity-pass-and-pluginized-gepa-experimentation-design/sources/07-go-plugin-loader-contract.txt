@@ -1,0 +1,681 @@
+     1	package main
+     2	
+     3	import (
+     4		"encoding/json"
+     5		"fmt"
+     6		"path/filepath"
+     7		"sort"
+     8		"strconv"
+     9		"strings"
+    10	
+    11		"github.com/dop251/goja"
+    12		"github.com/dop251/goja_nodejs/require"
+    13		gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
+    14		"github.com/pkg/errors"
+    15	)
+    16	
+    17	const optimizerPluginAPIVersion = "gepa.optimizer/v1"
+    18	
+    19	type optimizerPluginMeta struct {
+    20		APIVersion string
+    21		Kind       string
+    22		ID         string
+    23		Name       string
+    24	}
+    25	
+    26	type pluginEvaluateOptions struct {
+    27		Profile       string
+    28		EngineOptions map[string]any
+    29		Tags          map[string]any
+    30	}
+    31	
+    32	type optimizerPlugin struct {
+    33		rt       *jsRuntime
+    34		meta     optimizerPluginMeta
+    35		instance *goja.Object
+    36	
+    37		evaluateFn          goja.Callable
+    38		datasetFn           goja.Callable
+    39		mergeFn             goja.Callable
+    40		initialCandidateFn  goja.Callable
+    41		selectComponentsFn  goja.Callable
+    42		componentSideInfoFn goja.Callable
+    43	}
+    44	
+    45	func loadOptimizerPlugin(rt *jsRuntime, absScriptPath string, hostContext map[string]any) (*optimizerPlugin, optimizerPluginMeta, error) {
+    46		if rt == nil || rt.vm == nil || rt.reqMod == nil {
+    47			return nil, optimizerPluginMeta{}, errors.New("plugin loader: runtime is nil")
+    48		}
+    49		if strings.TrimSpace(absScriptPath) == "" {
+    50			return nil, optimizerPluginMeta{}, errors.New("plugin loader: script path is empty")
+    51		}
+    52	
+    53		exported, err := rt.reqMod.Require(absScriptPath)
+    54		if err != nil {
+    55			base := filepath.Base(absScriptPath)
+    56			baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
+    57			fallbacks := []string{
+    58				base,
+    59				baseNoExt,
+    60				"./" + base,
+    61				"./" + baseNoExt,
+    62			}
+    63			for _, mod := range fallbacks {
+    64				exported, err = rt.reqMod.Require(mod)
+    65				if err == nil {
+    66					break
+    67				}
+    68			}
+    69			if err != nil {
+    70				return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: require script module")
+    71			}
+    72		}
+    73	
+    74		descriptorObj := exported.ToObject(rt.vm)
+    75		if descriptorObj == nil {
+    76			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: script module did not export an object descriptor")
+    77		}
+    78	
+    79		meta, err := decodeOptimizerPluginMeta(descriptorObj)
+    80		if err != nil {
+    81			return nil, optimizerPluginMeta{}, err
+    82		}
+    83	
+    84		createVal := descriptorObj.Get("create")
+    85		createFn, ok := goja.AssertFunction(createVal)
+    86		if !ok {
+    87			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+    88		}
+    89	
+    90		if hostContext == nil {
+    91			hostContext = map[string]any{}
+    92		}
+    93	
+    94		instanceVal, err := createFn(descriptorObj, rt.vm.ToValue(hostContext))
+    95		if err != nil {
+    96			return nil, optimizerPluginMeta{}, errors.Wrap(err, "plugin loader: descriptor.create failed")
+    97		}
+    98		instanceObj := instanceVal.ToObject(rt.vm)
+    99		if instanceObj == nil {
+   100			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must return an object instance")
+   101		}
+   102	
+   103		evaluateFn, ok := goja.AssertFunction(instanceObj.Get("evaluate"))
+   104		if !ok {
+   105			return nil, optimizerPluginMeta{}, fmt.Errorf("plugin loader: plugin instance.evaluate must be a function")
+   106		}
+   107	
+   108		mergeFn := findOptionalCallable(instanceObj, "merge", "mergeCandidate", "mergePrompt")
+   109		datasetFn := findOptionalCallable(instanceObj, "dataset", "getDataset")
+   110		initialCandidateFn := findOptionalCallable(instanceObj, "initialCandidate", "getInitialCandidate")
+   111		selectComponentsFn := findOptionalCallable(instanceObj, "selectComponents", "chooseComponents")
+   112		componentSideInfoFn := findOptionalCallable(instanceObj, "componentSideInfo", "sideInfoForComponent", "buildSideInfo")
+   113	
+   114		p := &optimizerPlugin{
+   115			rt:                  rt,
+   116			meta:                meta,
+   117			instance:            instanceObj,
+   118			evaluateFn:          evaluateFn,
+   119			datasetFn:           datasetFn,
+   120			mergeFn:             mergeFn,
+   121			initialCandidateFn:  initialCandidateFn,
+   122			selectComponentsFn:  selectComponentsFn,
+   123			componentSideInfoFn: componentSideInfoFn,
+   124		}
+   125	
+   126		return p, meta, nil
+   127	}
+   128	
+   129	func findOptionalCallable(obj *goja.Object, keys ...string) goja.Callable {
+   130		if obj == nil {
+   131			return nil
+   132		}
+   133		for _, key := range keys {
+   134			v := obj.Get(key)
+   135			if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+   136				continue
+   137			}
+   138			if fn, ok := goja.AssertFunction(v); ok {
+   139				return fn
+   140			}
+   141		}
+   142		return nil
+   143	}
+   144	
+   145	func decodeOptimizerPluginMeta(descriptorObj *goja.Object) (optimizerPluginMeta, error) {
+   146		apiVersion := strings.TrimSpace(descriptorObj.Get("apiVersion").String())
+   147		kind := strings.TrimSpace(descriptorObj.Get("kind").String())
+   148		id := strings.TrimSpace(descriptorObj.Get("id").String())
+   149		name := strings.TrimSpace(descriptorObj.Get("name").String())
+   150	
+   151		if apiVersion == "" {
+   152			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.apiVersion is required")
+   153		}
+   154		if apiVersion != optimizerPluginAPIVersion {
+   155			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: unsupported apiVersion %q (expected %q)", apiVersion, optimizerPluginAPIVersion)
+   156		}
+   157		if kind != "optimizer" {
+   158			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.kind must be %q", "optimizer")
+   159		}
+   160		if id == "" {
+   161			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.id is required")
+   162		}
+   163		if name == "" {
+   164			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.name is required")
+   165		}
+   166	
+   167		if cv := descriptorObj.Get("create"); cv == nil || goja.IsUndefined(cv) || goja.IsNull(cv) {
+   168			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create is required")
+   169		}
+   170		if _, ok := goja.AssertFunction(descriptorObj.Get("create")); !ok {
+   171			return optimizerPluginMeta{}, fmt.Errorf("plugin loader: descriptor.create must be a function")
+   172		}
+   173	
+   174		return optimizerPluginMeta{
+   175			APIVersion: apiVersion,
+   176			Kind:       kind,
+   177			ID:         id,
+   178			Name:       name,
+   179		}, nil
+   180	}
+   181	
+   182	func (p *optimizerPlugin) Dataset() ([]any, error) {
+   183		if p == nil || p.rt == nil || p.instance == nil {
+   184			return nil, fmt.Errorf("plugin dataset: plugin not initialized")
+   185		}
+   186		if p.datasetFn == nil {
+   187			return nil, fmt.Errorf("plugin dataset: instance.dataset() not found (provide --dataset)")
+   188		}
+   189	
+   190		ret, err := p.datasetFn(p.instance, goja.Undefined())
+   191		if err != nil {
+   192			return nil, errors.Wrap(err, "plugin dataset: call failed")
+   193		}
+   194	
+   195		decoded, err := decodeJSReturnValue(ret)
+   196		if err != nil {
+   197			return nil, errors.Wrap(err, "plugin dataset: invalid return value")
+   198		}
+   199		arr, ok := decoded.([]any)
+   200		if ok {
+   201			return arr, nil
+   202		}
+   203		return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
+   204	}
+   205	
+   206	func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int, example any, opts pluginEvaluateOptions) (gepaopt.EvalResult, error) {
+   207		if p == nil || p.rt == nil || p.instance == nil || p.evaluateFn == nil {
+   208			return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
+   209		}
+   210	
+   211		input := map[string]any{
+   212			"candidate":    candidate,
+   213			"example":      example,
+   214			"exampleIndex": exampleIndex,
+   215		}
+   216		options := map[string]any{
+   217			"profile":       strings.TrimSpace(opts.Profile),
+   218			"engineOptions": opts.EngineOptions,
+   219			"tags":          opts.Tags,
+   220		}
+   221	
+   222		ret, err := p.evaluateFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   223		if err != nil {
+   224			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
+   225		}
+   226	
+   227		decoded, err := decodeJSReturnValue(ret)
+   228		if err != nil {
+   229			return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: invalid return value")
+   230		}
+   231	
+   232		er, err := decodeEvalResult(decoded)
+   233		if err != nil {
+   234			return gepaopt.EvalResult{}, err
+   235		}
+   236		er.Raw = decoded
+   237		return er, nil
+   238	}
+   239	
+   240	func (p *optimizerPlugin) HasMerge() bool {
+   241		return p != nil && p.mergeFn != nil
+   242	}
+   243	
+   244	func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOptions) (string, string, error) {
+   245		if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
+   246			return "", "", fmt.Errorf("plugin merge: merge() not available")
+   247		}
+   248	
+   249		input := map[string]any{
+   250			"candidateA": in.ParentA,
+   251			"candidateB": in.ParentB,
+   252			"paramKey":   in.ParamKey,
+   253			"paramA":     in.ParamA,
+   254			"paramB":     in.ParamB,
+   255			"sideInfoA":  in.SideInfoA,
+   256			"sideInfoB":  in.SideInfoB,
+   257		}
+   258		options := map[string]any{
+   259			"profile":       strings.TrimSpace(opts.Profile),
+   260			"engineOptions": opts.EngineOptions,
+   261			"tags":          opts.Tags,
+   262		}
+   263	
+   264		ret, err := p.mergeFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   265		if err != nil {
+   266			return "", "", errors.Wrap(err, "plugin merge: call failed")
+   267		}
+   268	
+   269		decoded, err := decodeJSReturnValue(ret)
+   270		if err != nil {
+   271			return "", "", errors.Wrap(err, "plugin merge: invalid return value")
+   272		}
+   273	
+   274		merged, err := decodeMergeOutput(decoded, in.ParamKey)
+   275		if err != nil {
+   276			return "", "", err
+   277		}
+   278	
+   279		raw := ""
+   280		switch x := decoded.(type) {
+   281		case string:
+   282			raw = x
+   283		default:
+   284			blob, _ := json.MarshalIndent(decoded, "", "  ")
+   285			raw = string(blob)
+   286		}
+   287	
+   288		return merged, raw, nil
+   289	}
+   290	
+   291	func (p *optimizerPlugin) HasInitialCandidate() bool {
+   292		return p != nil && p.initialCandidateFn != nil
+   293	}
+   294	
+   295	func (p *optimizerPlugin) InitialCandidate(opts pluginEvaluateOptions) (gepaopt.Candidate, error) {
+   296		if p == nil || p.rt == nil || p.instance == nil || p.initialCandidateFn == nil {
+   297			return nil, fmt.Errorf("plugin initialCandidate: initialCandidate() not available")
+   298		}
+   299		options := map[string]any{
+   300			"profile":       strings.TrimSpace(opts.Profile),
+   301			"engineOptions": opts.EngineOptions,
+   302			"tags":          opts.Tags,
+   303		}
+   304		ret, err := p.initialCandidateFn(p.instance, p.rt.vm.ToValue(options))
+   305		if err != nil {
+   306			return nil, errors.Wrap(err, "plugin initialCandidate: call failed")
+   307		}
+   308		decoded, err := decodeJSReturnValue(ret)
+   309		if err != nil {
+   310			return nil, errors.Wrap(err, "plugin initialCandidate: invalid return value")
+   311		}
+   312		return decodeCandidate(decoded)
+   313	}
+   314	
+   315	func (p *optimizerPlugin) HasSelectComponents() bool {
+   316		return p != nil && p.selectComponentsFn != nil
+   317	}
+   318	
+   319	func (p *optimizerPlugin) SelectComponents(in gepaopt.ComponentSelectionInput, opts pluginEvaluateOptions) ([]string, error) {
+   320		if p == nil || p.rt == nil || p.instance == nil || p.selectComponentsFn == nil {
+   321			return nil, fmt.Errorf("plugin selectComponents: selectComponents() not available")
+   322		}
+   323	
+   324		input := map[string]any{
+   325			"operation":      in.Operation,
+   326			"parentId":       int(in.ParentID),
+   327			"parent2Id":      int(in.Parent2ID),
+   328			"candidate":      in.Candidate,
+   329			"availableKeys":  in.AvailableKeys,
+   330			"nextParamIndex": in.NextParamIndex,
+   331		}
+   332		options := map[string]any{
+   333			"profile":       strings.TrimSpace(opts.Profile),
+   334			"engineOptions": opts.EngineOptions,
+   335			"tags":          opts.Tags,
+   336		}
+   337	
+   338		ret, err := p.selectComponentsFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   339		if err != nil {
+   340			return nil, errors.Wrap(err, "plugin selectComponents: call failed")
+   341		}
+   342		decoded, err := decodeJSReturnValue(ret)
+   343		if err != nil {
+   344			return nil, errors.Wrap(err, "plugin selectComponents: invalid return value")
+   345		}
+   346		components, err := decodeStringList(decoded)
+   347		if err != nil {
+   348			return nil, err
+   349		}
+   350		return components, nil
+   351	}
+   352	
+   353	func (p *optimizerPlugin) HasComponentSideInfo() bool {
+   354		return p != nil && p.componentSideInfoFn != nil
+   355	}
+   356	
+   357	func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts pluginEvaluateOptions) (string, error) {
+   358		if p == nil || p.rt == nil || p.instance == nil || p.componentSideInfoFn == nil {
+   359			return "", fmt.Errorf("plugin componentSideInfo: componentSideInfo() not available")
+   360		}
+   361	
+   362		input := map[string]any{
+   363			"operation": in.Operation,
+   364			"paramKey":  in.ParamKey,
+   365			"examples":  in.Examples,
+   366			"evals":     in.Evals,
+   367			"maxChars":  in.MaxChars,
+   368			"default":   in.Default,
+   369		}
+   370		options := map[string]any{
+   371			"profile":       strings.TrimSpace(opts.Profile),
+   372			"engineOptions": opts.EngineOptions,
+   373			"tags":          opts.Tags,
+   374		}
+   375	
+   376		ret, err := p.componentSideInfoFn(p.instance, p.rt.vm.ToValue(input), p.rt.vm.ToValue(options))
+   377		if err != nil {
+   378			return "", errors.Wrap(err, "plugin componentSideInfo: call failed")
+   379		}
+   380		decoded, err := decodeJSReturnValue(ret)
+   381		if err != nil {
+   382			return "", errors.Wrap(err, "plugin componentSideInfo: invalid return value")
+   383		}
+   384		return decodeSideInfoOutput(decoded)
+   385	}
+   386	
+   387	// decodeJSReturnValue mirrors the cozo runner behavior:
+   388	// - if JS returns a string, attempt JSON parsing
+   389	// - if JS returns bytes, attempt JSON parsing
+   390	// - otherwise, return exported value
+   391	func decodeJSReturnValue(ret goja.Value) (any, error) {
+   392		if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+   393			return nil, fmt.Errorf("returned null/undefined")
+   394		}
+   395		if raw, ok := ret.Export().(string); ok {
+   396			if strings.TrimSpace(raw) == "" {
+   397				return nil, fmt.Errorf("returned empty string")
+   398			}
+   399			var jsonValue any
+   400			if err := json.Unmarshal([]byte(raw), &jsonValue); err == nil {
+   401				return jsonValue, nil
+   402			}
+   403			return raw, nil
+   404		}
+   405		if bytes, ok := ret.Export().([]uint8); ok {
+   406			var jsonValue any
+   407			if err := json.Unmarshal(bytes, &jsonValue); err == nil {
+   408				return jsonValue, nil
+   409			}
+   410			return bytes, nil
+   411		}
+   412		return ret.Export(), nil
+   413	}
+   414	
+   415	func decodeEvalResult(v any) (gepaopt.EvalResult, error) {
+   416		switch x := v.(type) {
+   417		case map[string]any:
+   418			return decodeEvalResultFromMap(x)
+   419		case float64:
+   420			return gepaopt.EvalResult{Score: x}, nil
+   421		case int:
+   422			return gepaopt.EvalResult{Score: float64(x)}, nil
+   423		default:
+   424			return gepaopt.EvalResult{}, fmt.Errorf("evaluator must return an object with {score}, got %T", v)
+   425		}
+   426	}
+   427	
+   428	func decodeMergeOutput(v any, paramKey string) (string, error) {
+   429		paramKey = strings.TrimSpace(paramKey)
+   430		if paramKey == "" {
+   431			paramKey = "prompt"
+   432		}
+   433	
+   434		readString := func(m map[string]any, key string) string {
+   435			vv, ok := m[key]
+   436			if !ok || vv == nil {
+   437				return ""
+   438			}
+   439			s, ok := vv.(string)
+   440			if !ok {
+   441				return ""
+   442			}
+   443			return strings.TrimSpace(s)
+   444		}
+   445	
+   446		switch x := v.(type) {
+   447		case string:
+   448			out := strings.TrimSpace(x)
+   449			if out == "" {
+   450				return "", fmt.Errorf("merge returned empty string")
+   451			}
+   452			return out, nil
+   453		case map[string]any:
+   454			if candRaw, ok := x["candidate"]; ok && candRaw != nil {
+   455				if cm, ok := candRaw.(map[string]any); ok {
+   456					if s := readString(cm, paramKey); s != "" {
+   457						return s, nil
+   458					}
+   459				}
+   460			}
+   461	
+   462			for _, key := range []string{paramKey, "prompt", "merged", "mergedPrompt", "text"} {
+   463				if s := readString(x, key); s != "" {
+   464					return s, nil
+   465				}
+   466			}
+   467			return "", fmt.Errorf("merge must return a string or an object containing %q (or {candidate:{%q:...}}); got keys=%v", paramKey, paramKey, keysOf(x))
+   468		default:
+   469			return "", fmt.Errorf("merge must return a string or object, got %T", v)
+   470		}
+   471	}
+   472	
+   473	func decodeCandidate(v any) (gepaopt.Candidate, error) {
+   474		switch x := v.(type) {
+   475		case string:
+   476			s := strings.TrimSpace(x)
+   477			if s == "" {
+   478				return nil, fmt.Errorf("initial candidate string is empty")
+   479			}
+   480			return gepaopt.Candidate{"prompt": s}, nil
+   481		case map[string]any:
+   482			out := gepaopt.Candidate{}
+   483			for k, vv := range x {
+   484				key := strings.TrimSpace(k)
+   485				if key == "" {
+   486					continue
+   487				}
+   488				out[key] = toStringLossy(vv)
+   489			}
+   490			if len(out) == 0 {
+   491				return nil, fmt.Errorf("initial candidate map is empty")
+   492			}
+   493			return out, nil
+   494		default:
+   495			return nil, fmt.Errorf("initial candidate must be string or object, got %T", v)
+   496		}
+   497	}
+   498	
+   499	func decodeStringList(v any) ([]string, error) {
+   500		switch x := v.(type) {
+   501		case string:
+   502			s := strings.TrimSpace(x)
+   503			if s == "" {
+   504				return nil, nil
+   505			}
+   506			return []string{s}, nil
+   507		case []string:
+   508			out := make([]string, 0, len(x))
+   509			for _, item := range x {
+   510				if s := strings.TrimSpace(item); s != "" {
+   511					out = append(out, s)
+   512				}
+   513			}
+   514			return out, nil
+   515		case []any:
+   516			out := make([]string, 0, len(x))
+   517			for _, item := range x {
+   518				s := strings.TrimSpace(toStringLossy(item))
+   519				if s != "" {
+   520					out = append(out, s)
+   521				}
+   522			}
+   523			return out, nil
+   524		default:
+   525			return nil, fmt.Errorf("component list must be string or array, got %T", v)
+   526		}
+   527	}
+   528	
+   529	func decodeSideInfoOutput(v any) (string, error) {
+   530		switch x := v.(type) {
+   531		case string:
+   532			return x, nil
+   533		case map[string]any:
+   534			for _, key := range []string{"sideInfo", "text", "value", "default"} {
+   535				if vv, ok := x[key]; ok {
+   536					return toStringLossy(vv), nil
+   537				}
+   538			}
+   539			return "", nil
+   540		default:
+   541			return toStringLossy(v), nil
+   542		}
+   543	}
+   544	
+   545	func toStringLossy(v any) string {
+   546		if v == nil {
+   547			return ""
+   548		}
+   549		switch x := v.(type) {
+   550		case string:
+   551			return x
+   552		case json.Number:
+   553			return x.String()
+   554		case bool:
+   555			if x {
+   556				return "true"
+   557			}
+   558			return "false"
+   559		case float64:
+   560			return strconv.FormatFloat(x, 'f', -1, 64)
+   561		case float32:
+   562			return strconv.FormatFloat(float64(x), 'f', -1, 32)
+   563		case int:
+   564			return strconv.Itoa(x)
+   565		case int64:
+   566			return strconv.FormatInt(x, 10)
+   567		case int32:
+   568			return strconv.FormatInt(int64(x), 10)
+   569		case int16:
+   570			return strconv.FormatInt(int64(x), 10)
+   571		case int8:
+   572			return strconv.FormatInt(int64(x), 10)
+   573		case uint:
+   574			return strconv.FormatUint(uint64(x), 10)
+   575		case uint64:
+   576			return strconv.FormatUint(x, 10)
+   577		case uint32:
+   578			return strconv.FormatUint(uint64(x), 10)
+   579		case uint16:
+   580			return strconv.FormatUint(uint64(x), 10)
+   581		case uint8:
+   582			return strconv.FormatUint(uint64(x), 10)
+   583		default:
+   584			if blob, err := json.Marshal(x); err == nil {
+   585				return string(blob)
+   586			}
+   587			return fmt.Sprintf("%v", x)
+   588		}
+   589	}
+   590	
+   591	func keysOf(m map[string]any) []string {
+   592		out := make([]string, 0, len(m))
+   593		for k := range m {
+   594			out = append(out, k)
+   595		}
+   596		sort.Strings(out)
+   597		return out
+   598	}
+   599	
+   600	func decodeEvalResultFromMap(m map[string]any) (gepaopt.EvalResult, error) {
+   601		scoreRaw, ok := m["score"]
+   602		if !ok {
+   603			scoreRaw, ok = m["value"]
+   604		}
+   605		if !ok {
+   606			return gepaopt.EvalResult{}, fmt.Errorf("evaluator return value missing required field: score")
+   607		}
+   608	
+   609		score, err := toFloat(scoreRaw)
+   610		if err != nil {
+   611			return gepaopt.EvalResult{}, fmt.Errorf("invalid score: %w", err)
+   612		}
+   613	
+   614		var objScores gepaopt.ObjectiveScores
+   615		for _, key := range []string{"objectiveScores", "objectives"} {
+   616			if v, ok := m[key]; ok && v != nil {
+   617				objScores, _ = decodeObjectiveScores(v)
+   618				break
+   619			}
+   620		}
+   621	
+   622		out := gepaopt.EvalResult{
+   623			Score:      score,
+   624			Objectives: objScores,
+   625			Output:     m["output"],
+   626			Feedback:   m["feedback"],
+   627			Trace:      m["trace"],
+   628		}
+   629	
+   630		if notes, ok := m["notes"].(string); ok {
+   631			out.EvaluatorNotes = notes
+   632		} else if notes, ok := m["evaluatorNotes"].(string); ok {
+   633			out.EvaluatorNotes = notes
+   634		}
+   635	
+   636		return out, nil
+   637	}
+   638	
+   639	func decodeObjectiveScores(v any) (gepaopt.ObjectiveScores, error) {
+   640		out := gepaopt.ObjectiveScores{}
+   641		switch x := v.(type) {
+   642		case map[string]any:
+   643			for k, vv := range x {
+   644				f, err := toFloat(vv)
+   645				if err != nil {
+   646					continue
+   647				}
+   648				out[k] = f
+   649			}
+   650		}
+   651		if len(out) == 0 {
+   652			return nil, fmt.Errorf("empty objective scores")
+   653		}
+   654		return out, nil
+   655	}
+   656	
+   657	func toFloat(v any) (float64, error) {
+   658		switch x := v.(type) {
+   659		case float64:
+   660			return x, nil
+   661		case float32:
+   662			return float64(x), nil
+   663		case int:
+   664			return float64(x), nil
+   665		case int64:
+   666			return float64(x), nil
+   667		case json.Number:
+   668			return x.Float64()
+   669		case string:
+   670			if strings.TrimSpace(x) == "" {
+   671				return 0, fmt.Errorf("empty string")
+   672			}
+   673			num := json.Number(strings.TrimSpace(x))
+   674			return num.Float64()
+   675		default:
+   676			return 0, fmt.Errorf("unsupported numeric type %T", v)
+   677		}
+   678	}
+   679	
+   680	// Ensure the require package is linked (some Go compilers prune unused imports).
+   681	var _ = require.Require

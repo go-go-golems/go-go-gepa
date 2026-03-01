@@ -1,0 +1,77 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	import random
+     5	from collections import Counter
+     6	from typing import Protocol
+     7	
+     8	from gepa.core.adapter import DataInst
+     9	from gepa.core.data_loader import DataId, DataLoader
+    10	from gepa.core.state import GEPAState
+    11	
+    12	
+    13	class BatchSampler(Protocol[DataId, DataInst]):
+    14	    def next_minibatch_ids(self, loader: DataLoader[DataId, DataInst], state: GEPAState) -> list[DataId]: ...
+    15	
+    16	
+    17	class EpochShuffledBatchSampler(BatchSampler[DataId, DataInst]):
+    18	    """
+    19	    Mirrors the original batching logic:
+    20	    - Shuffle ids each epoch
+    21	    - Pad to minibatch size with least frequent ids
+    22	    - Deterministic via state.rng1
+    23	    """
+    24	
+    25	    def __init__(self, minibatch_size: int, rng: random.Random | None = None):
+    26	        self.minibatch_size = minibatch_size
+    27	        self.shuffled_ids: list[DataId] = []
+    28	        self.epoch = -1
+    29	        self.id_freqs = Counter()
+    30	        self.last_trainset_size = 0
+    31	        if rng is None:
+    32	            self.rng = random.Random(0)
+    33	        else:
+    34	            self.rng = rng
+    35	
+    36	    def _update_shuffled(self, loader: DataLoader[DataId, DataInst]):
+    37	        all_ids = list(loader.all_ids())
+    38	        trainset_size = len(loader)
+    39	        self.last_trainset_size = trainset_size
+    40	
+    41	        if trainset_size == 0:
+    42	            self.shuffled_ids = []
+    43	            self.id_freqs = Counter()
+    44	            return
+    45	
+    46	        self.shuffled_ids = list(all_ids)
+    47	        self.rng.shuffle(self.shuffled_ids)
+    48	        self.id_freqs = Counter(self.shuffled_ids)
+    49	
+    50	        mod = trainset_size % self.minibatch_size
+    51	        num_to_pad = (self.minibatch_size - mod) if mod != 0 else 0
+    52	        if num_to_pad > 0:
+    53	            for _ in range(num_to_pad):
+    54	                selected_id = self.id_freqs.most_common()[::-1][0][0]
+    55	                self.shuffled_ids.append(selected_id)
+    56	                self.id_freqs[selected_id] += 1
+    57	
+    58	    def next_minibatch_ids(self, loader: DataLoader[DataId, DataInst], state: GEPAState) -> list[DataId]:
+    59	        trainset_size = len(loader)
+    60	        if trainset_size == 0:
+    61	            raise ValueError("Cannot sample a minibatch from an empty loader.")
+    62	
+    63	        base_idx = state.i * self.minibatch_size
+    64	        curr_epoch = 0 if self.epoch == -1 else base_idx // max(len(self.shuffled_ids), 1)
+    65	
+    66	        needs_refresh = not self.shuffled_ids or trainset_size != self.last_trainset_size or curr_epoch > self.epoch
+    67	        if needs_refresh:
+    68	            self.epoch = curr_epoch
+    69	            self._update_shuffled(loader)
+    70	
+    71	        assert len(self.shuffled_ids) >= self.minibatch_size
+    72	        assert len(self.shuffled_ids) % self.minibatch_size == 0
+    73	
+    74	        base_idx = base_idx % len(self.shuffled_ids)
+    75	        end_idx = base_idx + self.minibatch_size
+    76	        assert end_idx <= len(self.shuffled_ids)
+    77	        return self.shuffled_ids[base_idx:end_idx]

@@ -1,0 +1,18 @@
+apiVersion: gepa.dataset-generate/v2
+name: arithmetic-smoke-gpt5nano
+count: 4
+prompting:
+  system: |
+    Generate simple arithmetic examples.
+  user_template: |
+    Create a question and answer pair.
+  variables:
+    difficulty:
+      - easy
+      - medium
+validation:
+  required_fields:
+    - question
+    - answer
+  max_retries: 1
+  drop_invalid: false

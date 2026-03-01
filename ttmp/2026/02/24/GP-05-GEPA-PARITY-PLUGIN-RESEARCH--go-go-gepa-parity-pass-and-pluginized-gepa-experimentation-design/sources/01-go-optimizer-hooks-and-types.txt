@@ -1,0 +1,240 @@
+     1	package gepa
+     2	
+     3	import (
+     4		"context"
+     5		"encoding/json"
+     6		"fmt"
+     7		"math"
+     8		"math/rand"
+     9		"sort"
+    10		"strings"
+    11		"time"
+    12	)
+    13	
+    14	// EvaluateFunc evaluates a candidate on a single example.
+    15	// The exampleIndex is provided for caching and traceability.
+    16	type EvaluateFunc func(ctx context.Context, candidate Candidate, exampleIndex int, example any) (EvalResult, error)
+    17	
+    18	// MergeInput is passed to an optional MergeFunc hook.
+    19	// It is intentionally string-first (for the prompt-like primary param), while still
+    20	// providing full candidate maps for advanced merge logic.
+    21	type MergeInput struct {
+    22		ParentA   Candidate `json:"parent_a"`
+    23		ParentB   Candidate `json:"parent_b"`
+    24		ParamKey  string    `json:"param_key"`
+    25		ParamA    string    `json:"param_a"`
+    26		ParamB    string    `json:"param_b"`
+    27		SideInfoA string    `json:"side_info_a"`
+    28		SideInfoB string    `json:"side_info_b"`
+    29	}
+    30	
+    31	// MergeFunc can be provided by the caller to override how merges are performed.
+    32	// It should return a new value for the optimizable parameter, plus a raw/debug string.
+    33	//
+    34	// If nil, the optimizer falls back to Reflector.Merge.
+    35	type MergeFunc func(ctx context.Context, in MergeInput) (mergedParam string, raw string, err error)
+    36	
+    37	// OptimizerEventType identifies an emitted optimizer event.
+    38	type OptimizerEventType string
+    39	
+    40	const (
+    41		OptimizerEventMutateAttempted OptimizerEventType = "mutate_attempted"
+    42		OptimizerEventMutateAccepted  OptimizerEventType = "mutate_accepted"
+    43		OptimizerEventMutateRejected  OptimizerEventType = "mutate_rejected"
+    44		OptimizerEventMergeAttempted  OptimizerEventType = "merge_attempted"
+    45		OptimizerEventMergeAccepted   OptimizerEventType = "merge_accepted"
+    46		OptimizerEventMergeRejected   OptimizerEventType = "merge_rejected"
+    47	)
+    48	
+    49	// OptimizerEvent captures one observable optimization transition.
+    50	type OptimizerEvent struct {
+    51		Type          OptimizerEventType `json:"type"`
+    52		Iteration     int                `json:"iteration"`
+    53		Operation     string             `json:"operation"`
+    54		ParentID      int                `json:"parent_id"`
+    55		Parent2ID     int                `json:"parent2_id"`
+    56		ChildID       int                `json:"child_id"`
+    57		UpdatedKeys   []string           `json:"updated_keys,omitempty"`
+    58		ParentScore   float64            `json:"parent_score"`
+    59		Parent2Score  *float64           `json:"parent2_score,omitempty"`
+    60		BaselineScore float64            `json:"baseline_score"`
+    61		ChildScore    float64            `json:"child_score"`
+    62		Accepted      bool               `json:"accepted"`
+    63		CallsUsed     int                `json:"calls_used"`
+    64	}
+    65	
+    66	// EventHook observes optimizer events.
+    67	type EventHook func(event OptimizerEvent)
+    68	
+    69	// ComponentSelectionInput is passed to an optional component selector hook.
+    70	type ComponentSelectionInput struct {
+    71		Operation      string      `json:"operation"`
+    72		ParentID       CandidateID `json:"parent_id"`
+    73		Parent2ID      CandidateID `json:"parent2_id"`
+    74		Candidate      Candidate   `json:"candidate"`
+    75		AvailableKeys  []string    `json:"available_keys"`
+    76		NextParamIndex int         `json:"next_param_index"`
+    77	}
+    78	
+    79	// ComponentSelectorFunc allows caller-defined component/key selection per iteration.
+    80	type ComponentSelectorFunc func(ctx context.Context, in ComponentSelectionInput) ([]string, error)
+    81	
+    82	// SideInfoInput is passed to an optional side-info hook.
+    83	type SideInfoInput struct {
+    84		Operation string        `json:"operation"`
+    85		ParamKey  string        `json:"param_key"`
+    86		Examples  []any         `json:"examples"`
+    87		Evals     []ExampleEval `json:"evals"`
+    88		MaxChars  int           `json:"max_chars"`
+    89		Default   string        `json:"default"`
+    90	}
+    91	
+    92	// SideInfoFunc allows caller-defined side-info generation per component.
+    93	type SideInfoFunc func(ctx context.Context, in SideInfoInput) (string, error)
+    94	
+    95	// Optimizer runs a GEPA-style reflective evolutionary loop.
+    96	//
+    97	// This is intentionally “GEPA-inspired” rather than a 1:1 port of the Python reference.
+    98	// The goal is a small, composable core that can sit on top of Geppetto and JS evaluators.
+    99	type Optimizer struct {
+   100		cfg       Config
+   101		eval      EvaluateFunc
+   102		reflector *Reflector
+   103		mergeFn   MergeFunc
+   104	
+   105		eventHook           EventHook
+   106		componentSelectorFn ComponentSelectorFunc
+   107		sideInfoFn          SideInfoFunc
+   108	
+   109		rng       *rand.Rand
+   110		cache     map[string]map[int]EvalResult // candidateHash -> exampleIndex -> result
+   111		callsUsed int
+   112	
+   113		// pool is append-only.
+   114		pool []*candidateNode
+   115	
+   116		// paramKeys are the ordered candidate keys that can be optimized.
+   117		// Determined at Optimize() time from cfg.OptimizableKeys or the seed candidate.
+   118		paramKeys []string
+   119	
+   120		iteration int
+   121		mergesDue int
+   122	}
+   123	
+   124	type candidateNode struct {
+   125		ID        CandidateID
+   126		ParentID  CandidateID
+   127		Parent2ID CandidateID
+   128		Candidate Candidate
+   129		CreatedAt time.Time
+   130		Operation string
+   131	
+   132		// NextParamIndex tracks which parameter will be updated next under the
+   133		// "round_robin" component selector.
+   134		NextParamIndex int
+   135	
+   136		// LastUpdated records, per candidate key, the node id that last updated that key.
+   137		// This enables simple system-aware merges that can pick the newest version of each key
+   138		// from multiple parents.
+   139		LastUpdated map[string]CandidateID
+   140	
+   141		// UpdatedKeys records which candidate keys were modified to create this node.
+   142		UpdatedKeys []string
+   143	
+   144		// Evaluations is the subset of cached evaluations we’ve pulled into the node.
+   145		// The optimizer cache is the source of truth; this field is a convenience view.
+   146		Evaluations map[int]EvalResult
+   147	
+   148		// ReflectionRaw is the full raw LLM response from the last mutation step (debug).
+   149		ReflectionRaw string
+   150	}
+   151	
+   152	type Result struct {
+   153		BestCandidate Candidate        `json:"best_candidate"`
+   154		BestStats     CandidateStats   `json:"best_stats"`
+   155		CallsUsed     int              `json:"calls_used"`
+   156		Candidates    []CandidateEntry `json:"candidates"`
+   157	}
+   158	
+   159	type CandidateEntry struct {
+   160		ID            int            `json:"id"`
+   161		ParentID      int            `json:"parent_id"`
+   162		Parent2ID     int            `json:"parent2_id"` // optional (only set for merge children)
+   163		Operation     string         `json:"operation"`  // seed|mutate|merge
+   164		Hash          string         `json:"hash"`
+   165		CreatedAt     time.Time      `json:"created_at"`
+   166		Candidate     Candidate      `json:"candidate"`
+   167		GlobalStats   CandidateStats `json:"global_stats"`
+   168		EvalsCached   int            `json:"evals_cached"`
+   169		ReflectionRaw string         `json:"reflection_raw,omitempty"`
+   170		UpdatedKeys   []string       `json:"updated_keys,omitempty"`
+   171	}
+   172	
+   173	// NewOptimizer constructs an optimizer.
+   174	func NewOptimizer(cfg Config, eval EvaluateFunc, reflector *Reflector) *Optimizer {
+   175		c := cfg.withDefaults()
+   176		r := rand.New(rand.NewSource(c.RandomSeed))
+   177		// Plumb config defaults into the reflector unless the caller overrides.
+   178		if reflector != nil {
+   179			if reflector.System == "" {
+   180				reflector.System = c.ReflectionSystemPrompt
+   181			}
+   182			if reflector.Template == "" {
+   183				reflector.Template = c.ReflectionPromptTemplate
+   184			}
+   185			if reflector.MergeSystem == "" {
+   186				reflector.MergeSystem = c.MergeSystemPrompt
+   187			}
+   188			if reflector.MergeTemplate == "" {
+   189				reflector.MergeTemplate = c.MergePromptTemplate
+   190			}
+   191		}
+   192		return &Optimizer{
+   193			cfg:       c,
+   194			eval:      eval,
+   195			reflector: reflector,
+   196			rng:       r,
+   197			cache:     map[string]map[int]EvalResult{},
+   198		}
+   199	}
+   200	
+   201	// SetMergeFunc installs an optional merge hook.
+   202	// If not set (or set to nil), merges use Reflector.Merge.
+   203	func (o *Optimizer) SetMergeFunc(fn MergeFunc) {
+   204		if o == nil {
+   205			return
+   206		}
+   207		o.mergeFn = fn
+   208	}
+   209	
+   210	// SetEventHook installs an optional observability hook.
+   211	func (o *Optimizer) SetEventHook(fn EventHook) {
+   212		if o == nil {
+   213			return
+   214		}
+   215		o.eventHook = fn
+   216	}
+   217	
+   218	// SetComponentSelectorFunc installs an optional per-iteration component selector.
+   219	func (o *Optimizer) SetComponentSelectorFunc(fn ComponentSelectorFunc) {
+   220		if o == nil {
+   221			return
+   222		}
+   223		o.componentSelectorFn = fn
+   224	}
+   225	
+   226	// SetSideInfoFunc installs an optional side-info hook.
+   227	func (o *Optimizer) SetSideInfoFunc(fn SideInfoFunc) {
+   228		if o == nil {
+   229			return
+   230		}
+   231		o.sideInfoFn = fn
+   232	}
+   233	
+   234	// CallsUsed returns the number of evaluator calls consumed so far.
+   235	func (o *Optimizer) CallsUsed() int {
+   236		if o == nil {
+   237			return 0
+   238		}
+   239		return o.callsUsed
+   240	}

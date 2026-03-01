@@ -1,0 +1,15 @@
+1) [error] YAML/frontmatter syntax error
+File: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/ttmp/2026/02/24/GP-05-GEPA-PARITY-PLUGIN-RESEARCH--go-go-gepa-parity-pass-and-pluginized-gepa-experimentation-design/sources/00-summary.md
+Problem: frontmatter delimiters '---' not found
+
+For more guidance, run: docmgr help yaml-frontmatter-validation
+Actions:
+- Validate frontmatter: docmgr validate frontmatter --doc /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/ttmp/2026/02/24/GP-05-GEPA-PARITY-PLUGIN-RESEARCH--go-go-gepa-parity-pass-and-pluginized-gepa-experimentation-design/sources/00-summary.md
+- Help: yaml-frontmatter-validation: docmgr help yaml-frontmatter-validation
+
+## Doctor Report (1 findings)
+
+### GP-05-GEPA-PARITY-PLUGIN-RESEARCH
+
+- [ERROR] invalid_frontmatter — Failed to parse frontmatter: taxonomy: docmgr.frontmatter.parse/yaml_syntax: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/ttmp/2026/02/24/GP-05-GEPA-PARITY-PLUGIN-RESEARCH--go-go-gepa-parity-pass-and-pluginized-gepa-experimentation-design/sources/00-summary.md frontmatter delimiters '---' not found (path=/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/ttmp/2026/02/24/GP-05-GEPA-PARITY-PLUGIN-RESEARCH--go-go-gepa-parity-pass-and-pluginized-gepa-experimentation-design/sources/00-summary.md)
+

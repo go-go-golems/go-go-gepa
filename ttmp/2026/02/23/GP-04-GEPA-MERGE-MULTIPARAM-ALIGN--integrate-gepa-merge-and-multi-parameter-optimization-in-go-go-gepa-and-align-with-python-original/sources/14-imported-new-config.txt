@@ -1,0 +1,110 @@
+     1	package gepa
+     2	
+     3	import "time"
+     4	
+     5	// Config controls the GEPA-style optimization loop.
+     6	type Config struct {
+     7		// Maximum number of evaluator calls. In prompt optimization, a “rollout”
+     8		// usually corresponds to one (candidate, example) evaluation.
+     9		MaxEvalCalls int
+    10	
+    11		// BatchSize is the number of examples sampled per iteration for mutation testing.
+    12		BatchSize int
+    13	
+    14		// FrontierSize caps the number of candidates kept on the Pareto frontier
+    15		// in the single-objective fallback path.
+    16		FrontierSize int
+    17	
+    18		// RandomSeed controls stochastic selection and batching.
+    19		// If 0, the optimizer will use time-based entropy.
+    20		RandomSeed int64
+    21	
+    22		// ReflectionSystemPrompt is the system prompt used for the reflection LLM.
+    23		ReflectionSystemPrompt string
+    24	
+    25		// ReflectionPromptTemplate must include "<curr_param>" and "<side_info>" placeholders.
+    26		ReflectionPromptTemplate string
+    27	
+    28		// MergeProbability is the probability of attempting a merge (crossover) step
+    29		// instead of a standard reflective mutation.
+    30		//
+    31		// 0 disables merging (default).
+    32		MergeProbability float64
+    33	
+    34		// MergeSystemPrompt is the system prompt used for the merge proposer LLM.
+    35		// If empty, the ReflectionSystemPrompt (or the reflector default) is used.
+    36		MergeSystemPrompt string
+    37	
+    38		// MergePromptTemplate must include "<param_a>", "<param_b>",
+    39		// "<side_info_a>", and "<side_info_b>" placeholders.
+    40		MergePromptTemplate string
+    41	
+    42		// OptimizableKeys optionally restricts which candidate keys are eligible for mutation/merge.
+    43		//
+    44		// If empty, the optimizer defaults to using the keys present in the seed candidate.
+    45		//
+    46		// This is the primary mechanism to support multi-parameter optimization (e.g., multiple
+    47		// module prompts in a larger system).
+    48		OptimizableKeys []string
+    49	
+    50		// ComponentSelector controls how many and which keys are updated per iteration.
+    51		//
+    52		// Supported values:
+    53		//  - "round_robin" (default): update one key per iteration, cycling through OptimizableKeys.
+    54		//  - "all": update all OptimizableKeys every iteration.
+    55		//
+    56		// Any other value falls back to "round_robin".
+    57		ComponentSelector string
+    58	
+    59		// Objective is an optional natural-language description of what we are optimizing for.
+    60		Objective string
+    61	
+    62		// MaxSideInfoChars caps the amount of formatted side-info passed to the reflector.
+    63		// 0 means “no explicit cap”.
+    64		MaxSideInfoChars int
+    65	
+    66		// Epsilon is the minimum improvement required to accept a child over its parent
+    67		// in the single-objective setting. 0 is fine for most use.
+    68		Epsilon float64
+    69	
+    70		// Now is injectable for tests. If nil, time.Now is used.
+    71		Now func() time.Time
+    72	}
+    73	
+    74	func (c Config) withDefaults() Config {
+    75		out := c
+    76		if out.MaxEvalCalls <= 0 {
+    77			out.MaxEvalCalls = 200
+    78		}
+    79		if out.BatchSize <= 0 {
+    80			out.BatchSize = 8
+    81		}
+    82		if out.FrontierSize <= 0 {
+    83			out.FrontierSize = 10
+    84		}
+    85		if out.RandomSeed == 0 {
+    86			out.RandomSeed = time.Now().UnixNano()
+    87		}
+    88		if out.ReflectionSystemPrompt == "" {
+    89			out.ReflectionSystemPrompt = "You are an expert prompt engineer."
+    90		}
+    91		if out.ReflectionPromptTemplate == "" {
+    92			out.ReflectionPromptTemplate = DefaultReflectionPromptTemplate
+    93		}
+    94		if out.MergeProbability < 0 {
+    95			out.MergeProbability = 0
+    96		}
+    97		if out.MergeSystemPrompt == "" {
+    98			out.MergeSystemPrompt = out.ReflectionSystemPrompt
+    99		}
+   100		if out.MergePromptTemplate == "" {
+   101			out.MergePromptTemplate = DefaultMergePromptTemplate
+   102		}
+   103		if out.ComponentSelector == "" {
+   104			out.ComponentSelector = "round_robin"
+   105		}
+   106		if out.Now == nil {
+   107			out.Now = time.Now
+   108		}
+   109		return out
+   110	}

@@ -1,0 +1,16 @@
+apiVersion: gepa.candidate-run/v2
+candidate:
+  prompt: |
+    Solve the arithmetic problem and return only the final numeric answer.
+  planner_prompt: |
+    First identify the required operation, then compute.
+metadata:
+  candidate_id: cand-exp-10
+  reflection_used: merge-cand-a-b
+  tags:
+    suite: smoke
+    experiment: exp-10
+runtime:
+  profile: gpt-5-nano
+  engine_overrides:
+    temperature: 0.0

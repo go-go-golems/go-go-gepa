@@ -1,0 +1,117 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	
+     5	import random
+     6	from typing import Any, Mapping
+     7	
+     8	
+     9	def json_default(x):
+    10	    """Default JSON encoder for objects that are not serializable by default."""
+    11	    try:
+    12	        return {**x}
+    13	    except Exception:
+    14	        return repr(x)
+    15	
+    16	
+    17	def idxmax(lst: list[float]) -> int:
+    18	    """Return the index of the maximum value in a list."""
+    19	    max_val = max(lst)
+    20	    return lst.index(max_val)
+    21	
+    22	
+    23	def is_dominated(y, programs, program_at_pareto_front_valset):
+    24	    y_fronts = [front for front in program_at_pareto_front_valset.values() if y in front]
+    25	    for front in y_fronts:
+    26	        found_dominator_in_front = False
+    27	        for other_prog in front:
+    28	            if other_prog in programs:
+    29	                found_dominator_in_front = True
+    30	                break
+    31	        if not found_dominator_in_front:
+    32	            return False
+    33	
+    34	    return True
+    35	
+    36	
+    37	def remove_dominated_programs(program_at_pareto_front_valset, scores=None):
+    38	    freq = {}
+    39	    for front in program_at_pareto_front_valset.values():
+    40	        for p in front:
+    41	            freq[p] = freq.get(p, 0) + 1
+    42	
+    43	    dominated = set()
+    44	    programs = list(freq.keys())
+    45	
+    46	    if scores is None:
+    47	        scores = dict.fromkeys(programs, 1)
+    48	
+    49	    programs = sorted(programs, key=lambda x: scores[x], reverse=False)
+    50	
+    51	    found_to_remove = True
+    52	    while found_to_remove:
+    53	        found_to_remove = False
+    54	        for y in programs:
+    55	            if y in dominated:
+    56	                continue
+    57	            if is_dominated(y, set(programs).difference({y}).difference(dominated), program_at_pareto_front_valset):
+    58	                dominated.add(y)
+    59	                found_to_remove = True
+    60	                break
+    61	
+    62	    dominators = [p for p in programs if p not in dominated]
+    63	    for front in program_at_pareto_front_valset.values():
+    64	        if not front:
+    65	            continue
+    66	        assert any(p in front for p in dominators)
+    67	
+    68	    new_program_at_pareto_front_valset = {
+    69	        val_id: {prog_idx for prog_idx in front if prog_idx in dominators}
+    70	        for val_id, front in program_at_pareto_front_valset.items()
+    71	    }
+    72	    for val_id, front_new in new_program_at_pareto_front_valset.items():
+    73	        assert front_new.issubset(program_at_pareto_front_valset[val_id])
+    74	
+    75	    return new_program_at_pareto_front_valset
+    76	
+    77	
+    78	def find_dominator_programs(pareto_front_programs, train_val_weighted_agg_scores_for_all_programs):
+    79	    train_val_pareto_front_programs = pareto_front_programs
+    80	    new_program_at_pareto_front_valset = remove_dominated_programs(
+    81	        train_val_pareto_front_programs, scores=train_val_weighted_agg_scores_for_all_programs
+    82	    )
+    83	    uniq_progs = []
+    84	    for front in new_program_at_pareto_front_valset.values():
+    85	        uniq_progs.extend(front)
+    86	    uniq_progs = set(uniq_progs)
+    87	    return list(uniq_progs)
+    88	
+    89	
+    90	def select_program_candidate_from_pareto_front(
+    91	    pareto_front_programs: Mapping[Any, set[int]],
+    92	    train_val_weighted_agg_scores_for_all_programs: list[float],
+    93	    rng: random.Random,
+    94	) -> int:
+    95	    train_val_pareto_front_programs = pareto_front_programs
+    96	    new_program_at_pareto_front_valset = remove_dominated_programs(
+    97	        train_val_pareto_front_programs, scores=train_val_weighted_agg_scores_for_all_programs
+    98	    )
+    99	    program_frequency_in_validation_pareto_front = {}
+   100	    for testcase_pareto_front in new_program_at_pareto_front_valset.values():
+   101	        for prog_idx in testcase_pareto_front:
+   102	            if prog_idx not in program_frequency_in_validation_pareto_front:
+   103	                program_frequency_in_validation_pareto_front[prog_idx] = 0
+   104	            program_frequency_in_validation_pareto_front[prog_idx] += 1
+   105	
+   106	    sampling_list = [
+   107	        prog_idx for prog_idx, freq in program_frequency_in_validation_pareto_front.items() for _ in range(freq)
+   108	    ]
+   109	
+   110	    # TODO: Determine if we need this fallback
+   111	    # if not sampling_list:
+   112	    #     # No Pareto programs survived; fall back to the globally highest-scoring program.
+   113	    #     return idxmax(train_val_weighted_agg_scores_for_all_programs)
+   114	    assert len(sampling_list) > 0
+   115	
+   116	    curr_prog_id = rng.choice(sampling_list)
+   117	    return curr_prog_id

@@ -1,0 +1,11 @@
+2026-02-26T13:26:34.338715753-05:00 INF Loaded dataset generator plugin plugin_id=examples.arithmetic plugin_name="Arithmetic Dataset Generator" plugin_registry_identifier=local.examples
+Plugin: Arithmetic Dataset Generator (examples.arithmetic) [registry=local.examples]
+Config: /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-dataset-generate-gpt5nano.yaml
+Dataset ID: gepa-dataset-1772130394338818428
+Requested rows: 1
+Generated rows: 1
+Seed: 1772130394338340167
+Wrote JSONL: ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-08-out/arithmetic-smoke-gpt5nano.jsonl
+Wrote metadata: ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-08-out/arithmetic-smoke-gpt5nano.metadata.json
+Wrote SQLite rows: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-08-generated.sqlite
+First row: {"answer":"25","question":"18 + 7"}

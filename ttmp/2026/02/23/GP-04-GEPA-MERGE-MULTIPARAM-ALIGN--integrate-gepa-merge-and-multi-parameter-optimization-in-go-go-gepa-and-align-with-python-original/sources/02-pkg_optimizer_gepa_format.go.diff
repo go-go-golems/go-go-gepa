@@ -1,0 +1,87 @@
+diff --git a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/pkg/optimizer/gepa/format.go b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/optimizer/gepa/format.go
+index 0e652cb..03f8571 100644
+--- a/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/imported/geppetto-main/pkg/optimizer/gepa/format.go
++++ b/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/pkg/optimizer/gepa/format.go
+@@ -23,30 +23,6 @@ const DefaultReflectionPromptTemplate = "" +
+ 	"Read all the assistant responses and the corresponding feedback. Identify all niche and domain specific factual information about the task and include it in the instruction, as a lot of it may not be available to the assistant in the future. The assistant may have utilized a generalizable strategy to solve the task, if so, include that in the instruction as well.\n\n" +
+ 	"Provide the new instructions within ``` blocks."
+ 
+-// DefaultMergePromptTemplate asks an LLM to merge two candidate instructions.
+-// It MUST contain "<param_a>", "<param_b>", "<side_info_a>", and "<side_info_b>" placeholders.
+-const DefaultMergePromptTemplate = "" +
+-	"I have two different instructions for an assistant to perform the same task.\n" +
+-	"Instruction A:\n" +
+-	"```\n" +
+-	"<param_a>\n" +
+-	"```\n\n" +
+-	"Instruction B:\n" +
+-	"```\n" +
+-	"<param_b>\n" +
+-	"```\n\n" +
+-	"Below are evaluation examples (inputs, assistant outputs, scores, and feedback) for each instruction.\n\n" +
+-	"Examples for Instruction A:\n" +
+-	"```\n" +
+-	"<side_info_a>\n" +
+-	"```\n\n" +
+-	"Examples for Instruction B:\n" +
+-	"```\n" +
+-	"<side_info_b>\n" +
+-	"```\n\n" +
+-	"Your task is to write a single merged instruction that combines the best parts of A and B, fixes their failures, and stays concise and unambiguous.\n\n" +
+-	"Provide the merged instruction within ``` blocks."
+-
+ // FormatSideInfo renders a minibatch of evaluations into a markdown-ish text block.
+ // This text becomes the "<side_info>" input in the reflection prompt template.
+ func FormatSideInfo(examples []any, evals []ExampleEval, maxChars int) string {
+@@ -105,51 +81,6 @@ func FormatSideInfo(examples []any, evals []ExampleEval, maxChars int) string {
+ 	return b.String()
+ }
+ 
+-// FormatSideInfoForKey is like FormatSideInfo, but (optionally) narrows Trace and Feedback
+-// to the sub-field keyed by paramKey when those values are JSON objects.
+-//
+-// This is useful for multi-parameter (multi-module) optimization, where evaluators may
+-// return per-module traces/feedback as an object keyed by the candidate parameter name.
+-func FormatSideInfoForKey(examples []any, evals []ExampleEval, paramKey string, maxChars int) string {
+-	paramKey = strings.TrimSpace(paramKey)
+-	if paramKey == "" {
+-		return FormatSideInfo(examples, evals, maxChars)
+-	}
+-
+-	filtered := make([]ExampleEval, 0, len(evals))
+-	for _, ev := range evals {
+-		res := ev.Result
+-		// If Trace is an object and contains this key, use the keyed sub-trace.
+-		if sub, ok := pickKeyedSubvalue(res.Trace, paramKey); ok {
+-			res.Trace = sub
+-		}
+-		// If Feedback is an object and contains this key, use the keyed sub-feedback.
+-		if sub, ok := pickKeyedSubvalue(res.Feedback, paramKey); ok {
+-			res.Feedback = sub
+-		}
+-		filtered = append(filtered, ExampleEval{ExampleIndex: ev.ExampleIndex, Result: res})
+-	}
+-
+-	return FormatSideInfo(examples, filtered, maxChars)
+-}
+-
+-func pickKeyedSubvalue(v any, key string) (any, bool) {
+-	if v == nil {
+-		return nil, false
+-	}
+-	switch m := v.(type) {
+-	case map[string]any:
+-		if vv, ok := m[key]; ok {
+-			return vv, true
+-		}
+-	case map[string]interface{}:
+-		if vv, ok := m[key]; ok {
+-			return vv, true
+-		}
+-	}
+-	return nil, false
+-}
+-
+ func writeAsPrettyJSON(b *bytes.Buffer, v any) {
+ 	blob, err := json.MarshalIndent(v, "", "  ")
+ 	if err != nil {

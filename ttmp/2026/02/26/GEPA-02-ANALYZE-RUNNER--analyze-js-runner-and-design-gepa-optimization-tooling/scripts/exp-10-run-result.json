@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "planner_prompt": "First identify the required operation, then compute.\n",
+    "prompt": "Solve the arithmetic problem and return only the final numeric answer.\n"
+  },
+  "candidateId": "cand-exp-10",
+  "input": {
+    "answer": "39",
+    "question": "18 + 21"
+  },
+  "metadata": {
+    "mode": "candidate-run",
+    "plugin": "examples.candidate-run.smoke"
+  },
+  "output": {
+    "composed_instruction": "Solve the arithmetic problem and return only the final numeric answer.\n\n\nFirst identify the required operation, then compute.\n",
+    "expected_answer": "39",
+    "planner_prompt": "First identify the required operation, then compute.\n",
+    "prompt": "Solve the arithmetic problem and return only the final numeric answer.\n",
+    "question": "18 + 21"
+  },
+  "plugin": {
+    "apiVersion": "gepa.optimizer/v1",
+    "id": "examples.candidate-run.smoke",
+    "kind": "optimizer",
+    "name": "Candidate Run Smoke Plugin",
+    "registryIdentifier": "local.examples"
+  },
+  "profile": "gpt-5-nano",
+  "reflectionUsed": "merge-cand-a-b",
+  "runId": "gepa-candidate-run-1772137945991819642",
+  "tags": {
+    "experiment": "exp-10",
+    "suite": "smoke"
+  }
+}

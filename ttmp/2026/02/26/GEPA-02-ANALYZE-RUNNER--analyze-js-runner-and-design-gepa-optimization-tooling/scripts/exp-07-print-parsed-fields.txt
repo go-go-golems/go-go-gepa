@@ -1,0 +1,376 @@
+ai-chat:
+  ai-api-type:
+    log:
+      - source: defaults
+        value: openai
+      - metadata:
+          config_file: /home/manuel/.pinocchio/config.yaml
+          index: 0
+          map-value: openai
+        source: config
+        value: openai
+      - metadata:
+          map-value: openai-responses
+          mode: profile-registry-stack
+          profile: gpt-5-nano
+          profileRegistries:
+            - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-profile-registry-gpt5nano.yaml
+        source: profiles
+        value: openai-responses
+    value: openai-responses
+  ai-cache-directory:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  ai-cache-max-entries:
+    log:
+      - source: defaults
+        value: 1000
+    value: 1000
+  ai-cache-max-size:
+    log:
+      - source: defaults
+        value: 1073741824
+    value: 1073741824
+  ai-cache-type:
+    log:
+      - source: defaults
+        value: none
+    value: none
+  ai-engine:
+    log:
+      - source: defaults
+        value: gpt-4
+      - metadata:
+          config_file: /home/manuel/.pinocchio/config.yaml
+          index: 0
+          map-value: gpt-4o-mini
+        source: config
+        value: gpt-4o-mini
+      - metadata:
+          map-value: gpt-5-nano
+          mode: profile-registry-stack
+          profile: gpt-5-nano
+          profileRegistries:
+            - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-profile-registry-gpt5nano.yaml
+        source: profiles
+        value: gpt-5-nano
+    value: gpt-5-nano
+  ai-max-response-tokens:
+    log:
+      - metadata:
+          config_file: /home/manuel/.pinocchio/config.yaml
+          index: 0
+          map-value: 4096
+        source: config
+        value: 4096
+      - metadata:
+          map-value: 128000
+          mode: profile-registry-stack
+          profile: gpt-5-nano
+          profileRegistries:
+            - /home/manuel/workspaces/2026-02-22/add-gepa-optimizer/go-go-gepa/ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-profile-registry-gpt5nano.yaml
+        source: profiles
+        value: 128000
+    value: 128000
+  ai-stop:
+    log:
+      - source: defaults
+        value: []
+    value: []
+  ai-structured-output-description:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  ai-structured-output-mode:
+    log:
+      - source: defaults
+        value: "off"
+    value: "off"
+  ai-structured-output-name:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  ai-structured-output-require-valid:
+    log:
+      - source: defaults
+        value: false
+    value: false
+  ai-structured-output-schema:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  ai-structured-output-strict:
+    log:
+      - source: defaults
+        value: true
+    value: true
+  ai-temperature:
+    log:
+      - source: defaults
+        value: 0.7
+    value: 0.7
+  ai-top-p:
+    log:
+      - source: defaults
+        value: 1
+    value: 1
+ai-client:
+  organization:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  timeout:
+    log:
+      - source: defaults
+        value: 60
+    value: 60
+ai-inference: {}
+claude-chat:
+  claude-api-key:
+<redacted>    log:
+      - source: defaults
+        value: ""
+      - metadata:
+          config_file: /home/manuel/.pinocchio/config.yaml
+          index: 0
+          map-value: <redacted>
+        source: config
+        value: <redacted>
+    value: <redacted>
+  claude-base-url:
+    log:
+      - source: defaults
+        value: https://api.anthropic.com
+    value: https://api.anthropic.com
+  claude-top-k:
+    log:
+      - source: defaults
+        value: 1
+    value: 1
+  claude-user-id:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+command-settings:
+  print-parsed-fields:
+    log:
+      - metadata:
+          flag: print-parsed-fields
+          registered_key: command-settings
+          section: General purpose command options
+          section_prefix: ""
+          section_slug: command-settings
+        source: cobra
+        value: true
+    value: true
+default:
+  config:
+    log:
+      - metadata:
+          flag: config
+          parsed-strings:
+            - ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-dataset-generate-gpt5nano.yaml
+          registered_key: default
+          section: Flags
+          section_prefix: ""
+          section_slug: default
+        source: cobra
+        value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-dataset-generate-gpt5nano.yaml
+    value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-dataset-generate-gpt5nano.yaml
+  count:
+    log:
+      - source: defaults
+        value: 0
+      - metadata:
+          flag: count
+          registered_key: default
+          section: Flags
+          section_prefix: ""
+          section_slug: default
+        source: cobra
+        value: 2
+    value: 2
+  debug:
+    log:
+      - source: defaults
+        value: false
+    value: false
+  dry-run:
+    log:
+      - source: defaults
+        value: false
+    value: false
+  output-db:
+    log:
+      - metadata:
+          flag: output-db
+          parsed-strings:
+            - ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-generated.sqlite
+          registered_key: default
+          section: Flags
+          section_prefix: ""
+          section_slug: default
+        source: cobra
+        value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-generated.sqlite
+    value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-generated.sqlite
+  output-dir:
+    log:
+      - metadata:
+          flag: output-dir
+          parsed-strings:
+            - ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-out-print
+          registered_key: default
+          section: Flags
+          section_prefix: ""
+          section_slug: default
+        source: cobra
+        value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-out-print
+    value: ./ttmp/2026/02/26/GEPA-02-ANALYZE-RUNNER--analyze-js-runner-and-design-gepa-optimization-tooling/scripts/exp-07-out-print
+  script:
+    log:
+      - metadata:
+          flag: script
+          parsed-strings:
+            - ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js
+          registered_key: default
+          section: Flags
+          section_prefix: ""
+          section_slug: default
+        source: cobra
+        value: ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js
+    value: ./cmd/gepa-runner/scripts/arithmetic_dataset_generator.js
+  seed:
+    log:
+      - source: defaults
+        value: -1
+    value: -1
+embeddings:
+  embeddings-cache-directory:
+    log:
+      - source: defaults
+        value: ""
+    value: ""
+  embeddings-cache-max-entries:
+    log:
+      - source: defaults
+        value: 1000
+    value: 1000
+  embeddings-cache-max-size:
+    log:
+      - source: defaults
+        value: 1073741824
+    value: 1073741824
+  embeddings-cache-type:
+    log:
+      - source: defaults
+        value: none
+    value: none
+  embeddings-dimensions:
+    log:
+      - source: defaults
+        value: 1536
+    value: 1536
+  embeddings-engine:
+    log:
+      - source: defaults
+        value: text-embedding-3-small
+    value: text-embedding-3-small
+  embeddings-type:
+    log:
+      - source: defaults
+        value: openai
+    value: openai
+gemini-chat:
+  gemini-api-key:
+<redacted>    log:
+      - source: defaults
+        value: ""
+    value: ""
+  gemini-base-url:
+    log:
+      - source: defaults
+        value: https://generativelanguage.googleapis.com/
+    value: https://generativelanguage.googleapis.com/
+openai-chat:
+  openai-api-key:
+<redacted>    log:
+      - source: defaults
+        value: ""
+      - metadata:
+          config_file: /home/manuel/.pinocchio/config.yaml
+          index: 0
+          map-value: <redacted>
+        source: config
+        value: <redacted>
+    value: <redacted>
+  openai-base-url:
+    log:
+      - source: defaults
+        value: https://api.openai.com/v1
+    value: https://api.openai.com/v1
+  openai-frequency-penalty:
+    log:
+      - source: defaults
+        value: 0
+    value: 0
+  openai-include-reasoning-encrypted:
+    log:
+      - source: defaults
+        value: false
+    value: false
+  openai-logit-bias:
+    log:
+      - source: defaults
+        value: {}
+    value: {}
+  openai-n:
+    log:
+      - source: defaults
+        value: 1
+    value: 1
+  openai-parallel-tool-calls:
+    log:
+      - source: defaults
+        value: false
+    value: false
+  openai-presence-penalty:
+    log:
+      - source: defaults
+        value: 0
+    value: 0
+  openai-reasoning-effort:
+    log:
+      - source: defaults
+        value: medium
+    value: medium
+  openai-reasoning-summary:
+    log:
+      - source: defaults
+        value: auto
+    value: auto
+  openai-stream-include-usage:
+    log:
+      - source: defaults
+        value: true
+    value: true
+profile-settings:
+  profile:
+    log:
+      - metadata:
+          flag: profile
+          parsed-strings:
+            - gpt-5-nano
+          registered_key: profile-settings
+          section: Profile settings
+          section_prefix: ""
+          section_slug: profile-settings
+        source: cobra
+        value: gpt-5-nano
+    value: gpt-5-nano

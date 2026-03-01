@@ -1,0 +1,36 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	
+     5	from gepa.core.adapter import Trajectory
+     6	from gepa.core.state import GEPAState
+     7	from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector
+     8	
+     9	
+    10	class RoundRobinReflectionComponentSelector(ReflectionComponentSelector):
+    11	    def __call__(
+    12	        self,
+    13	        state: GEPAState,
+    14	        trajectories: list[Trajectory],
+    15	        subsample_scores: list[float],
+    16	        candidate_idx: int,
+    17	        candidate: dict[str, str],
+    18	    ) -> list[str]:
+    19	        pid = state.named_predictor_id_to_update_next_for_program_candidate[candidate_idx]
+    20	        state.named_predictor_id_to_update_next_for_program_candidate[candidate_idx] = (pid + 1) % len(
+    21	            state.list_of_named_predictors
+    22	        )
+    23	        name = state.list_of_named_predictors[pid]
+    24	        return [name]
+    25	
+    26	
+    27	class AllReflectionComponentSelector(ReflectionComponentSelector):
+    28	    def __call__(
+    29	        self,
+    30	        state: GEPAState,
+    31	        trajectories: list[Trajectory],
+    32	        subsample_scores: list[float],
+    33	        candidate_idx: int,
+    34	        candidate: dict[str, str],
+    35	    ) -> list[str]:
+    36	        return list(candidate.keys())

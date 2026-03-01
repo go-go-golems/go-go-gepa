@@ -1,0 +1,2 @@
+{"case_id":"COACH_CASE_001","sessions":5,"entity_count":7,"relationship_count":6}
+{"case_id":"COACH_CASE_002","sessions":5,"entity_count":6,"relationship_count":6}

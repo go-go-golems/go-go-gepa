@@ -1,0 +1,181 @@
+   380	            iteration_started = False
+   381	            try:
+   382	                state.save(self.run_dir, use_cloudpickle=self.use_cloudpickle)
+   383	                notify_callbacks(
+   384	                    self.callbacks,
+   385	                    "on_state_saved",
+   386	                    StateSavedEvent(
+   387	                        iteration=state.i + 1,
+   388	                        run_dir=self.run_dir,
+   389	                    ),
+   390	                )
+   391	
+   392	                state.i += 1
+   393	                state.full_program_trace.append({"i": state.i})
+   394	
+   395	                # Notify callbacks of iteration start
+   396	                notify_callbacks(
+   397	                    self.callbacks,
+   398	                    "on_iteration_start",
+   399	                    IterationStartEvent(
+   400	                        iteration=state.i + 1,
+   401	                        state=state,
+   402	                    ),
+   403	                )
+   404	                iteration_started = True
+   405	
+   406	                # 1) Attempt merge first if scheduled and last iter found new program
+   407	                if self.merge_proposer is not None and self.merge_proposer.use_merge:
+   408	                    if self.merge_proposer.merges_due > 0 and self.merge_proposer.last_iter_found_new_program:
+   409	                        proposal = self.merge_proposer.propose(state)
+   410	                        self.merge_proposer.last_iter_found_new_program = False  # old behavior
+   411	
+   412	                        if proposal is not None and proposal.tag == "merge":
+   413	                            parent_sums = proposal.subsample_scores_before or [
+   414	                                float("-inf"),
+   415	                                float("-inf"),
+   416	                            ]
+   417	                            new_sum = sum(proposal.subsample_scores_after or [])
+   418	
+   419	                            # Notify merge attempted
+   420	                            notify_callbacks(
+   421	                                self.callbacks,
+   422	                                "on_merge_attempted",
+   423	                                MergeAttemptedEvent(
+   424	                                    iteration=state.i + 1,
+   425	                                    parent_ids=proposal.parent_program_ids,
+   426	                                    merged_candidate=proposal.candidate,
+   427	                                ),
+   428	                            )
+   429	
+   430	                            if new_sum >= max(parent_sums):
+   431	                                # ACCEPTED: consume one merge attempt and record it
+   432	                                new_idx, _ = self._run_full_eval_and_add(
+   433	                                    new_program=proposal.candidate,
+   434	                                    state=state,
+   435	                                    parent_program_idx=proposal.parent_program_ids,
+   436	                                )
+   437	                                self.merge_proposer.merges_due -= 1
+   438	                                self.merge_proposer.total_merges_tested += 1
+   439	                                proposal_accepted = True
+   440	
+   441	                                # Notify merge accepted
+   442	                                notify_callbacks(
+   443	                                    self.callbacks,
+   444	                                    "on_merge_accepted",
+   445	                                    MergeAcceptedEvent(
+   446	                                        iteration=state.i + 1,
+   447	                                        new_candidate_idx=new_idx,
+   448	                                        parent_ids=proposal.parent_program_ids,
+   449	                                    ),
+   450	                                )
+   451	                                notify_callbacks(
+   452	                                    self.callbacks,
+   453	                                    "on_candidate_accepted",
+   454	                                    CandidateAcceptedEvent(
+   455	                                        iteration=state.i + 1,
+   456	                                        new_candidate_idx=new_idx,
+   457	                                        new_score=new_sum,
+   458	                                        parent_ids=proposal.parent_program_ids,
+   459	                                    ),
+   460	                                )
+   461	                                continue  # skip reflective this iteration
+   462	                            else:
+   463	                                # REJECTED: do NOT consume merges_due or total_merges_tested
+   464	                                self.logger.log(
+   465	                                    f"Iteration {state.i + 1}: New program subsample score {new_sum} "
+   466	                                    f"is worse than both parents {parent_sums}, skipping merge"
+   467	                                )
+   468	                                # Notify merge rejected
+   469	                                notify_callbacks(
+   470	                                    self.callbacks,
+   471	                                    "on_merge_rejected",
+   472	                                    MergeRejectedEvent(
+   473	                                        iteration=state.i + 1,
+   474	                                        parent_ids=proposal.parent_program_ids,
+   475	                                        reason=f"Merged score {new_sum} worse than both parents {parent_sums}",
+   476	                                    ),
+   477	                                )
+   478	                                # Skip reflective this iteration (old behavior)
+   479	                                continue
+   480	
+   481	                    # Old behavior: regardless of whether we attempted, clear the flag before reflective
+   482	                    self.merge_proposer.last_iter_found_new_program = False
+   483	
+   484	                # 2) Reflective mutation proposer
+   485	                proposal = self.reflective_proposer.propose(state)
+   486	                if proposal is None:
+   487	                    self.logger.log(f"Iteration {state.i + 1}: Reflective mutation did not propose a new candidate")
+   488	                    continue
+   489	
+   490	                # Acceptance: require strict improvement on subsample
+   491	                old_sum = sum(proposal.subsample_scores_before or [])
+   492	                new_sum = sum(proposal.subsample_scores_after or [])
+   493	                if new_sum <= old_sum:
+   494	                    self.logger.log(
+   495	                        f"Iteration {state.i + 1}: New subsample score {new_sum} is not better than old score {old_sum}, skipping"
+   496	                    )
+   497	                    # Notify candidate rejected
+   498	                    notify_callbacks(
+   499	                        self.callbacks,
+   500	                        "on_candidate_rejected",
+   501	                        CandidateRejectedEvent(
+   502	                            iteration=state.i + 1,
+   503	                            old_score=old_sum,
+   504	                            new_score=new_sum,
+   505	                            reason=f"New subsample score {new_sum} not better than old score {old_sum}",
+   506	                        ),
+   507	                    )
+   508	                    continue
+   509	                else:
+   510	                    self.logger.log(
+   511	                        f"Iteration {state.i + 1}: New subsample score {new_sum} is better than old score {old_sum}. Continue to full eval and add to candidate pool."
+   512	                    )
+   513	
+   514	                # Accept: full eval + add
+   515	                new_idx, _ = self._run_full_eval_and_add(
+   516	                    new_program=proposal.candidate,
+   517	                    state=state,
+   518	                    parent_program_idx=proposal.parent_program_ids,
+   519	                )
+   520	                proposal_accepted = True
+   521	
+   522	                # Notify candidate accepted
+   523	                notify_callbacks(
+   524	                    self.callbacks,
+   525	                    "on_candidate_accepted",
+   526	                    CandidateAcceptedEvent(
+   527	                        iteration=state.i + 1,
+   528	                        new_candidate_idx=new_idx,
+   529	                        new_score=new_sum,
+   530	                        parent_ids=proposal.parent_program_ids,
+   531	                    ),
+   532	                )
+   533	
+   534	                # Schedule merge attempts like original behavior
+   535	                if self.merge_proposer is not None:
+   536	                    self.merge_proposer.last_iter_found_new_program = True
+   537	                    if self.merge_proposer.total_merges_tested < self.merge_proposer.max_merge_invocations:
+   538	                        self.merge_proposer.merges_due += 1
+   539	
+   540	            except Exception as e:
+   541	                self.logger.log(f"Iteration {state.i + 1}: Exception during optimization: {e}")
+   542	                self.logger.log(traceback.format_exc())
+   543	                # Notify error callback
+   544	                notify_callbacks(
+   545	                    self.callbacks,
+   546	                    "on_error",
+   547	                    ErrorEvent(
+   548	                        iteration=state.i + 1,
+   549	                        exception=e,
+   550	                        will_continue=not self.raise_on_exception,
+   551	                    ),
+   552	                )
+   553	                if self.raise_on_exception:
+   554	                    raise e
+   555	                else:
+   556	                    continue
+   557	            finally:
+   558	                # Notify iteration end only if the iteration actually started
+   559	                # (i.e., on_iteration_start was called successfully)
+   560	                if iteration_started:

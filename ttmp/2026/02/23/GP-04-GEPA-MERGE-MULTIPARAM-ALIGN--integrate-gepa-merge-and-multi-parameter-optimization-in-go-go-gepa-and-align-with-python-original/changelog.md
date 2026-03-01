@@ -1,0 +1,101 @@
+# Changelog
+
+## 2026-02-23
+
+- Created ticket `GP-04-GEPA-MERGE-MULTIPARAM-ALIGN` for merge/multi-param integration planning and Python GEPA alignment.
+- Added deep analysis document:
+  - `analysis/01-merge-multi-param-integration-and-python-gepa-alignment-study.md`
+- Replaced placeholder task list with phased implementation plan in `tasks.md`.
+- Added detailed implementation diary in `reference/01-diary.md`.
+- Captured source artifacts under `sources/`:
+  - upstream patch + pairwise diffs
+  - Python GEPA config/engine/merge/component excerpts
+  - current/upstream Go runner/optimizer/plugin excerpts
+- Added reproducible artifact collection script:
+  - `scripts/01-collect-alignment-artifacts.sh`
+- Uploaded study document to reMarkable and verified remote location:
+  - Remote directory: `/ai/2026/02/23/GP-04-GEPA-MERGE-MULTIPARAM-ALIGN`
+  - Remote file: `01-merge-multi-param-integration-and-python-gepa-alignment-study`
+- Re-ran ticket validation:
+  - `docmgr doctor --ticket GP-04-GEPA-MERGE-MULTIPARAM-ALIGN` passed.
+- Implemented Phase 1 merge/multi-param port in `go-go-gepa` (commit `e8d8b14`):
+  - Optimizer core: `pkg/optimizer/gepa/{config,format,reflector,optimizer}.go`
+  - Runner/plugin integration: `cmd/gepa-runner/{main,dataset,plugin_loader}.go`
+  - Example plugin merge callback: `cmd/gepa-runner/scripts/toy_math_optimizer.js`
+- Validation after Phase 1 implementation:
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./pkg/optimizer/gepa -count=1` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./cmd/gepa-runner -count=1` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
+- Implemented Phase 2 hardening/tests in `go-go-gepa` (commit `e49d0c7`):
+  - Added seed-candidate loader tests:
+    - `cmd/gepa-runner/dataset_test.go`
+  - Added plugin merge decoding/detection tests:
+    - `cmd/gepa-runner/plugin_loader_test.go`
+  - Extended optimizer/config tests for merge baseline + component selectors:
+    - `pkg/optimizer/gepa/{config_test.go,optimizer_test.go}`
+  - Addressed lint findings in runtime code:
+    - `cmd/gepa-runner/dataset.go` (`errcheck` close handling)
+    - `cmd/gepa-runner/plugin_loader.go` (`staticcheck` type inference)
+- Validation after Phase 2 implementation:
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 make lint` passed (0 issues).
+- Added final post-port implementation report:
+  - `analysis/02-phase-1-2-implementation-report.md`
+- Uploaded implementation report to reMarkable and verified folder contents:
+  - Remote directory: `/ai/2026/02/23/GP-04-GEPA-MERGE-MULTIPARAM-ALIGN`
+  - Remote file: `02-phase-1-2-implementation-report`
+- Implemented Phase 3 optional alignment enhancements in `go-go-gepa` (commit `d9a6e75`):
+  - Added Python-like merge scheduling mode in optimizer config/loop:
+    - `MergeScheduler=stagnation_due`, `MaxMergesDue`, internal `mergesDue` state.
+  - Added optimizer observability event hooks:
+    - `SetEventHook(...)` and merge/mutate attempted/accepted/rejected events.
+  - Added optimizer extension hooks:
+    - `SetComponentSelectorFunc(...)`
+    - `SetSideInfoFunc(...)`
+  - Added runner/plugin extension wiring:
+    - plugin hooks: `initialCandidate`, `selectComponents`, `componentSideInfo`
+    - runner flags: `--seedless`, `--merge-scheduler`, `--max-merges-due`, `--show-events`
+  - Updated toy plugin to demonstrate new optional hooks.
+- Validation after Phase 3 implementation:
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 make lint` passed (0 issues).
+- Added Phase 3 addendum report:
+  - `analysis/03-phase-3-alignment-extensions-report.md`
+- Uploaded Phase 3 report to reMarkable:
+  - Remote directory: `/ai/2026/02/23/GP-04-GEPA-MERGE-MULTIPARAM-ALIGN`
+  - Remote file: `03-phase-3-alignment-extensions-report`
+- Updated runner documentation for Phase 3 feature surface (commit `8e2a889`):
+  - `go-go-gepa/cmd/gepa-runner/README.md`
+  - Added full flag docs for scheduler/seedless/events and full JS plugin extension hook contract.
+- Added tailored Phase 3 example plugins and shared script library (commit `ae31a31`):
+  - Shared helper module:
+    - `go-go-gepa/cmd/gepa-runner/scripts/lib/gepa_optimizer_common.js`
+  - New examples:
+    - `go-go-gepa/cmd/gepa-runner/scripts/multi_param_math_optimizer.js`
+    - `go-go-gepa/cmd/gepa-runner/scripts/seedless_heuristic_merge_optimizer.js`
+    - `go-go-gepa/cmd/gepa-runner/scripts/optimize_anything_style_optimizer.js`
+  - Refactored:
+    - `go-go-gepa/cmd/gepa-runner/scripts/toy_math_optimizer.js`
+    - `go-go-gepa/cmd/gepa-runner/README.md`
+- Validation for script/doc update:
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
+- Added script example smoke harness and fixed plugin-helper compatibility in `go-go-gepa` (commit `fe476f8`):
+  - Added smoke test:
+    - `go-go-gepa/cmd/gepa-runner/script_examples_smoke_test.go`
+  - Added local plugin contract helper for scripts:
+    - `go-go-gepa/cmd/gepa-runner/scripts/lib/gepa_plugin_contract.js`
+  - Updated all bundled example scripts to use local contract helper instead of `require("geppetto/plugins")`.
+  - Hardened plugin script loading fallback in:
+    - `go-go-gepa/cmd/gepa-runner/plugin_loader.go`
+  - Updated docs:
+    - `go-go-gepa/cmd/gepa-runner/README.md`
+    - `go-go-gepa/README.md`
+- Validation after smoke/compatibility update:
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./cmd/gepa-runner -run TestExampleScriptsLoadAndExposeExpectedHooks -count=1 -v` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go test ./... -count=1` passed.
+  - `GOWORK=off GOTOOLCHAIN=go1.25.7 go run ./cmd/gepa-runner eval --script ./cmd/gepa-runner/scripts/smoke_noop_optimizer.js --prompt ok` passed.
+
+## 2026-02-28
+
+Cleanup: all ticket tasks complete; closing ticket.
+

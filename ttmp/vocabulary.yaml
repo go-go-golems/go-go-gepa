@@ -1,0 +1,162 @@
+topics:
+    - slug: backend
+      description: Backend services
+    - slug: frontend
+      description: Frontend app
+    - slug: infrastructure
+      description: Infra, devops, tooling
+    - slug: websocket
+      description: WebSocket and realtime
+    - slug: inference
+      description: LLM inference and engines
+    - slug: conversation
+      description: Conversation management
+    - slug: tools
+      description: Tool calling and function calling
+    - slug: events
+      description: Event system and streaming
+    - slug: embeddings
+      description: Embeddings and vector search
+    - slug: middleware
+      description: Middleware and processing layers
+    - slug: hydration
+      description: Hydration (server snapshots + client resume)
+    - slug: persistence
+      description: Snapshot persistence and data stores
+    - slug: bug
+      description: Bugs and investigations
+    - slug: architecture
+      description: Architecture and design
+    - slug: geppetto
+      description: Geppetto project
+    - slug: go
+      description: Go code
+    - slug: turns
+      description: Turns and blocks data model
+    - slug: serde
+      description: Serialization/deserialization (serde)
+    - slug: yaml
+      description: YAML serialization
+    - slug: chat
+      description: Chat backend and frontend surfaces
+    - slug: pinocchio
+      description: Pinocchio repository changes
+    - slug: glazed
+      description: Glazed framework related work
+    - slug: migration
+      description: Migration/refactor work across APIs or modules
+    - slug: sqlite
+      description: SQLite storage and query workflows
+    - slug: menus
+      description: menu systems, command menus, and context-menu architecture
+    - slug: go-go-os
+      description: go-go-os monorepo and desktop shell architecture work
+    - slug: ui
+      description: user interface architecture and interaction design
+    - slug: profile-registry
+      description: Profile registry domain and APIs
+    - slug: js-bindings
+      description: JavaScript binding layers and contracts
+    - slug: go-api
+      description: Go application API contracts and wiring
+    - slug: stack-profiles
+      description: Profile stacking/inheritance and layered profile composition semantics
+    - slug: merge-provenance
+      description: Field-level merge source tracking and deterministic provenance traces
+    - slug: metadata
+      description: Metadata structures, parse logs, and provenance annotations
+    - slug: security
+      description: Security-sensitive behavior, secret handling, and leak prevention
+    - slug: config
+      description: Configuration parsing, mapping, and settings handling
+    - slug: extractor
+      description: Data or relation extraction workflows and plugin contracts
+    - slug: gepa
+      description: GEPA optimization framework and runners
+    - slug: optimizer
+      description: Prompt optimization algorithms and plugin interfaces
+    - slug: plugins
+      description: JavaScript plugin contracts, registration, and descriptor loading
+    - slug: benchmarking
+      description: Performance benchmarking and comparison tooling
+    - slug: goja
+      description: Goja JavaScript engine integration
+    - slug: optimization
+      description: Optimization algorithms and loop infrastructure
+    - slug: runner
+      description: CLI runner and experiment execution
+    - slug: tooling
+      description: Developer and research tooling
+    - slug: event-streaming
+      description: Streaming of runtime/application events across transport boundaries
+    - slug: js-vm
+      description: JavaScript virtual machine runtime integration topics
+    - slug: sem
+      description: Semantic event model envelopes, translation, and projection
+    - slug: web-frontend
+      description: Browser/frontend event ingestion and rendering concerns
+    - slug: inventory-chat
+      description: Inventory chat domain backend/frontend module architecture and runtime integration.
+    - slug: wesen-os
+      description: Composition runtime repository for launcher and app assembly
+    - slug: go-go-app-inventory
+      description: Inventory app repository and module ownership
+    - slug: bundling
+      description: Frontend asset bundling and dist assembly pipelines
+    - slug: arc-agi
+      description: ARC-AGI environment and integration work
+    - slug: modules
+      description: Backend/frontend module contracts and composition
+    - slug: python
+      description: Python runtime and service integration concerns
+    - slug: inventory-app
+      description: Inventory application frontend/backend integration and runtime behavior
+    - slug: hypercard
+      description: HyperCard runtime, artifacts, and card interaction architecture
+    - slug: go-go-app-arc-agi-3
+      description: Topic slug for go-go-app-arc-agi-3 repository specific investigations.
+    - slug: vm
+      description: Topic slug for virtual machine/runtime behavior investigations.
+    - slug: demo
+      description: Demo and showcase work
+    - slug: ui-dsl
+      description: HyperCard UI DSL contracts and examples
+docTypes:
+    - slug: index
+      description: Ticket index
+    - slug: design-doc
+      description: Design document
+    - slug: reference
+      description: API/reference
+    - slug: playbook
+      description: Operational playbook
+    - slug: til
+      description: Today I Learned
+    - slug: analysis
+      description: Analysis / synthesis
+    - slug: misc
+      description: Miscellaneous
+    - slug: code-review
+      description: Code review summary
+    - slug: planning
+      description: Planning / detailed analysis documents
+    - slug: skill
+      description: Skill documentation (what it's for and when to use it)
+intent:
+    - slug: long-term
+      description: Persistent documentation
+    - slug: short-term
+      description: Ephemeral notes
+    - slug: throwaway
+      description: Temporary/experimental documentation
+status:
+    - slug: active
+      description: In progress
+    - slug: complete
+      description: Done / closed
+    - slug: draft
+      description: Initial draft state
+    - slug: review
+      description: Ready for review
+    - slug: archived
+      description: Archived/completed work

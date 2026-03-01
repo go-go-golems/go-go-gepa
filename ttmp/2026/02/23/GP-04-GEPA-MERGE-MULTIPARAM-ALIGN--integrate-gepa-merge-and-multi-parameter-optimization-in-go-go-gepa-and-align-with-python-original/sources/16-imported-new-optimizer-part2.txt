@@ -1,0 +1,483 @@
+   380				Operation:     n.Operation,
+   381				Hash:          candidateHash(n.Candidate),
+   382				CreatedAt:     n.CreatedAt,
+   383				Candidate:     cloneCandidate(n.Candidate),
+   384				GlobalStats:   o.globalStats(n),
+   385				EvalsCached:   len(o.cache[candidateHash(n.Candidate)]),
+   386				ReflectionRaw: n.ReflectionRaw,
+   387				UpdatedKeys:   append([]string(nil), n.UpdatedKeys...),
+   388			})
+   389		}
+   390	
+   391		return &Result{
+   392			BestCandidate: cloneCandidate(bestNode.Candidate),
+   393			BestStats:     bestStats,
+   394			CallsUsed:     o.callsUsed,
+   395			Candidates:    entries,
+   396		}, nil
+   397	}
+   398	
+   399	func (o *Optimizer) remainingBudget() int {
+   400		return o.cfg.MaxEvalCalls - o.callsUsed
+   401	}
+   402	
+   403	func (o *Optimizer) acceptChild(parent, child CandidateStats) bool {
+   404		// Multi-objective: accept if child dominates parent.
+   405		if len(parent.MeanObjectives) > 1 || len(child.MeanObjectives) > 1 {
+   406			if Dominates(child.MeanObjectives, parent.MeanObjectives) {
+   407				return true
+   408			}
+   409			// Fallback: accept if scalar score improved.
+   410		}
+   411	
+   412		return child.MeanScore > parent.MeanScore+o.cfg.Epsilon
+   413	}
+   414	
+   415	func (o *Optimizer) selectParent() *candidateNode {
+   416		if len(o.pool) == 0 {
+   417			return nil
+   418		}
+   419	
+   420		// Build objective vectors for selection.
+   421		obj := make([]ObjectiveScores, 0, len(o.pool))
+   422		scalars := make([]float64, 0, len(o.pool))
+   423		for _, n := range o.pool {
+   424			stats := o.globalStats(n)
+   425			vec := stats.MeanObjectives
+   426			if len(vec) == 0 {
+   427				vec = ObjectiveScores{"score": stats.MeanScore}
+   428			}
+   429			obj = append(obj, vec)
+   430			scalars = append(scalars, stats.MeanScore)
+   431		}
+   432	
+   433		// If we have multiple objectives overall, use Pareto front.
+   434		keys := unionObjectiveKeys(obj)
+   435		var candIdx []int
+   436		if len(keys) > 1 {
+   437			candIdx = ParetoFront(obj)
+   438		} else {
+   439			candIdx = TopKByScore(scalars, o.cfg.FrontierSize)
+   440		}
+   441	
+   442		if len(candIdx) == 0 {
+   443			// Fallback to uniform.
+   444			return o.pool[o.rng.Intn(len(o.pool))]
+   445		}
+   446	
+   447		// Weighted random selection by scalar score (shifted to positive).
+   448		minS := math.Inf(1)
+   449		for _, i := range candIdx {
+   450			if scalars[i] < minS {
+   451				minS = scalars[i]
+   452			}
+   453		}
+   454		weights := make([]float64, 0, len(candIdx))
+   455		sum := 0.0
+   456		for _, i := range candIdx {
+   457			w := scalars[i] - minS + 1e-9
+   458			if w < 0 {
+   459				w = 0
+   460			}
+   461			weights = append(weights, w)
+   462			sum += w
+   463		}
+   464		var chosen int
+   465		if sum <= 0 {
+   466			chosen = candIdx[o.rng.Intn(len(candIdx))]
+   467		} else {
+   468			r := o.rng.Float64() * sum
+   469			acc := 0.0
+   470			for j, i := range candIdx {
+   471				acc += weights[j]
+   472				if r <= acc {
+   473					chosen = i
+   474					break
+   475				}
+   476			}
+   477		}
+   478		return o.pool[chosen]
+   479	}
+   480	
+   481	func (o *Optimizer) selectParentDistinct(exclude CandidateID) *candidateNode {
+   482		if o == nil || len(o.pool) < 2 {
+   483			return nil
+   484		}
+   485		// Try a few times using the same selection policy.
+   486		for i := 0; i < 10; i++ {
+   487			n := o.selectParent()
+   488			if n != nil && n.ID != exclude {
+   489				return n
+   490			}
+   491		}
+   492		// Fallback: pick uniformly among all nodes except exclude.
+   493		idx := o.rng.Intn(len(o.pool) - 1)
+   494		// Map idx into [0,len) skipping exclude.
+   495		for _, n := range o.pool {
+   496			if n.ID == exclude {
+   497				continue
+   498			}
+   499			if idx == 0 {
+   500				return n
+   501			}
+   502			idx--
+   503		}
+   504		return nil
+   505	}
+   506	
+   507	func (o *Optimizer) proposeMerge(ctx context.Context, in MergeInput) (string, string, error) {
+   508		if o == nil {
+   509			return "", "", fmt.Errorf("proposeMerge: optimizer is nil")
+   510		}
+   511		if o.mergeFn != nil {
+   512			return o.mergeFn(ctx, in)
+   513		}
+   514		if o.reflector == nil {
+   515			return "", "", fmt.Errorf("proposeMerge: reflector is nil")
+   516		}
+   517		return o.reflector.Merge(ctx, in.ParamA, in.ParamB, in.SideInfoA, in.SideInfoB)
+   518	}
+   519	
+   520	func unionObjectiveKeys(vecs []ObjectiveScores) map[string]struct{} {
+   521		out := map[string]struct{}{}
+   522		for _, v := range vecs {
+   523			for k := range v {
+   524				out[k] = struct{}{}
+   525			}
+   526		}
+   527		return out
+   528	}
+   529	
+   530	func (o *Optimizer) sampleBatchIndices(n, batchSize, budget int) []int {
+   531		if n <= 0 || batchSize <= 0 || budget <= 0 {
+   532			return nil
+   533		}
+   534		if batchSize > n {
+   535			batchSize = n
+   536		}
+   537		if batchSize > budget {
+   538			batchSize = budget
+   539		}
+   540		if batchSize <= 0 {
+   541			return nil
+   542		}
+   543		if batchSize == n {
+   544			out := make([]int, n)
+   545			for i := 0; i < n; i++ {
+   546				out[i] = i
+   547			}
+   548			return out
+   549		}
+   550	
+   551		// Sample without replacement.
+   552		perm := o.rng.Perm(n)
+   553		return append([]int(nil), perm[:batchSize]...)
+   554	}
+   555	
+   556	func (o *Optimizer) ensureEvaluated(ctx context.Context, n *candidateNode, examples []any, indices []int) ([]ExampleEval, error) {
+   557		if n == nil {
+   558			return nil, fmt.Errorf("ensureEvaluated: node is nil")
+   559		}
+   560		h := candidateHash(n.Candidate)
+   561		if h == "" {
+   562			return nil, fmt.Errorf("ensureEvaluated: candidate hash is empty")
+   563		}
+   564		if _, ok := o.cache[h]; !ok {
+   565			o.cache[h] = map[int]EvalResult{}
+   566		}
+   567	
+   568		out := make([]ExampleEval, 0, len(indices))
+   569		for _, idx := range indices {
+   570			if idx < 0 || idx >= len(examples) {
+   571				continue
+   572			}
+   573			if cached, ok := o.cache[h][idx]; ok {
+   574				n.Evaluations[idx] = cached
+   575				out = append(out, ExampleEval{ExampleIndex: idx, Result: cached})
+   576				continue
+   577			}
+   578			if o.callsUsed >= o.cfg.MaxEvalCalls {
+   579				break
+   580			}
+   581			res, err := o.eval(ctx, n.Candidate, idx, examples[idx])
+   582			if err != nil {
+   583				return nil, fmt.Errorf("evaluator failed for example %d: %w", idx, err)
+   584			}
+   585			// Ensure objectives has a "score" dimension if none were provided.
+   586			if len(res.Objectives) == 0 {
+   587				res.Objectives = ObjectiveScores{"score": res.Score}
+   588			}
+   589			o.cache[h][idx] = res
+   590			n.Evaluations[idx] = res
+   591			o.callsUsed++
+   592			out = append(out, ExampleEval{ExampleIndex: idx, Result: res})
+   593		}
+   594		return out, nil
+   595	}
+   596	
+   597	func (o *Optimizer) globalStats(n *candidateNode) CandidateStats {
+   598		if n == nil {
+   599			return CandidateStats{}
+   600		}
+   601		evals := make([]ExampleEval, 0, len(n.Evaluations))
+   602		for idx, res := range n.Evaluations {
+   603			evals = append(evals, ExampleEval{ExampleIndex: idx, Result: res})
+   604		}
+   605		return AggregateStats(evals)
+   606	}
+   607	
+   608	// AggregateStats computes mean score + mean objectives for a slice of evaluations.
+   609	func AggregateStats(evals []ExampleEval) CandidateStats {
+   610		if len(evals) == 0 {
+   611			return CandidateStats{}
+   612		}
+   613		sumScore := 0.0
+   614		count := 0
+   615	
+   616		sumObj := map[string]float64{}
+   617		cntObj := map[string]int{}
+   618	
+   619		for _, e := range evals {
+   620			sumScore += e.Result.Score
+   621			count++
+   622	
+   623			vec := e.Result.Objectives
+   624			if len(vec) == 0 {
+   625				vec = ObjectiveScores{"score": e.Result.Score}
+   626			}
+   627			for k, v := range vec {
+   628				sumObj[k] += v
+   629				cntObj[k]++
+   630			}
+   631		}
+   632	
+   633		meanObj := ObjectiveScores{}
+   634		for k, s := range sumObj {
+   635			if cntObj[k] > 0 {
+   636				meanObj[k] = s / float64(cntObj[k])
+   637			}
+   638		}
+   639	
+   640		return CandidateStats{
+   641			MeanScore:      sumScore / float64(count),
+   642			MeanObjectives: meanObj,
+   643			N:              count,
+   644		}
+   645	}
+   646	
+   647	func cloneCandidate(c Candidate) Candidate {
+   648		if c == nil {
+   649			return nil
+   650		}
+   651		out := make(Candidate, len(c))
+   652		for k, v := range c {
+   653			out[k] = v
+   654		}
+   655		return out
+   656	}
+   657	
+   658	func cloneLastUpdated(m map[string]CandidateID) map[string]CandidateID {
+   659		if m == nil {
+   660			return map[string]CandidateID{}
+   661		}
+   662		out := make(map[string]CandidateID, len(m))
+   663		for k, v := range m {
+   664			out[k] = v
+   665		}
+   666		return out
+   667	}
+   668	
+   669	func encodeRawByKey(rawByKey map[string]string) string {
+   670		if len(rawByKey) == 0 {
+   671			return ""
+   672		}
+   673		if len(rawByKey) == 1 {
+   674			for _, v := range rawByKey {
+   675				return v
+   676			}
+   677		}
+   678		blob, err := json.MarshalIndent(rawByKey, "", "  ")
+   679		if err != nil {
+   680			// best-effort fallback
+   681			parts := make([]string, 0, len(rawByKey))
+   682			for k, v := range rawByKey {
+   683				parts = append(parts, fmt.Sprintf("[%s]\n%s", k, v))
+   684			}
+   685			sort.Strings(parts)
+   686			return strings.Join(parts, "\n\n")
+   687		}
+   688		return string(blob)
+   689	}
+   690	
+   691	func maxInt(a, b int) int {
+   692		if a > b {
+   693			return a
+   694		}
+   695		return b
+   696	}
+   697	
+   698	func deriveOptimizableKeys(cfg Config, seed Candidate) ([]string, error) {
+   699		// Explicit list provided.
+   700		if len(cfg.OptimizableKeys) > 0 {
+   701			seen := map[string]struct{}{}
+   702			out := make([]string, 0, len(cfg.OptimizableKeys))
+   703			for _, raw := range cfg.OptimizableKeys {
+   704				k := strings.TrimSpace(raw)
+   705				if k == "" {
+   706					continue
+   707				}
+   708				if _, ok := seen[k]; ok {
+   709					continue
+   710				}
+   711				if _, ok := seed[k]; !ok {
+   712					return nil, fmt.Errorf("optimizer: optimizable key %q is not present in seed candidate", k)
+   713				}
+   714				seen[k] = struct{}{}
+   715				out = append(out, k)
+   716			}
+   717			if len(out) == 0 {
+   718				return nil, fmt.Errorf("optimizer: OptimizableKeys was provided but no valid keys were found")
+   719			}
+   720			return out, nil
+   721		}
+   722	
+   723		// Default: deterministically use seed keys (prefer "prompt" first when present).
+   724		keys := make([]string, 0, len(seed))
+   725		for k := range seed {
+   726			keys = append(keys, k)
+   727		}
+   728		sort.Strings(keys)
+   729		if len(keys) == 0 {
+   730			return nil, fmt.Errorf("optimizer: seed candidate has no keys")
+   731		}
+   732		if _, ok := seed["prompt"]; ok {
+   733			// Move "prompt" to the front for backwards-compatible behavior.
+   734			out := make([]string, 0, len(keys))
+   735			out = append(out, "prompt")
+   736			for _, k := range keys {
+   737				if k == "prompt" {
+   738					continue
+   739				}
+   740				out = append(out, k)
+   741			}
+   742			return out, nil
+   743		}
+   744		return keys, nil
+   745	}
+   746	
+   747	func (o *Optimizer) isOptimizableKey(k string) bool {
+   748		if o == nil {
+   749			return false
+   750		}
+   751		for _, kk := range o.paramKeys {
+   752			if kk == k {
+   753				return true
+   754			}
+   755		}
+   756		return false
+   757	}
+   758	
+   759	// selectComponents chooses which candidate key(s) to update this iteration.
+   760	//
+   761	// Under the "round_robin" strategy, this method advances the parent's NextParamIndex.
+   762	func (o *Optimizer) selectComponents(parent *candidateNode) []string {
+   763		if o == nil || parent == nil {
+   764			return nil
+   765		}
+   766		if len(o.paramKeys) == 0 {
+   767			k := primaryParamKey(parent.Candidate)
+   768			if strings.TrimSpace(k) == "" {
+   769				return nil
+   770			}
+   771			return []string{k}
+   772		}
+   773	
+   774		switch strings.ToLower(strings.TrimSpace(o.cfg.ComponentSelector)) {
+   775		case "all":
+   776			out := make([]string, 0, len(o.paramKeys))
+   777			for _, k := range o.paramKeys {
+   778				if _, ok := parent.Candidate[k]; ok {
+   779					out = append(out, k)
+   780				}
+   781			}
+   782			return out
+   783		default: // round_robin
+   784			idx := parent.NextParamIndex
+   785			if idx < 0 {
+   786				idx = 0
+   787			}
+   788			// Find the next key that exists in the candidate.
+   789			for tries := 0; tries < len(o.paramKeys); tries++ {
+   790				k := o.paramKeys[(idx+tries)%len(o.paramKeys)]
+   791				if _, ok := parent.Candidate[k]; ok {
+   792					parent.NextParamIndex = (idx + tries + 1) % len(o.paramKeys)
+   793					return []string{k}
+   794				}
+   795			}
+   796			return nil
+   797		}
+   798	}
+   799	
+   800	// systemAwareMerge performs a simple component-wise merge between two parents.
+   801	// For optimizable keys, it chooses the parent's value whose key was updated more recently.
+   802	//
+   803	// This mirrors the idea in GEPA's "system-aware merge": if a component has evolved in one
+   804	// parent more recently than the other, keep that newer component.
+   805	func (o *Optimizer) systemAwareMerge(a, b *candidateNode) (Candidate, map[string]CandidateID) {
+   806		if o == nil || a == nil || b == nil {
+   807			return nil, nil
+   808		}
+   809	
+   810		child := cloneCandidate(a.Candidate)
+   811		last := cloneLastUpdated(a.LastUpdated)
+   812	
+   813		for k, vb := range b.Candidate {
+   814			// Always copy missing keys (even if not optimizable) to preserve candidate completeness.
+   815			va, okA := a.Candidate[k]
+   816			if !okA {
+   817				child[k] = vb
+   818				if lu, ok := b.LastUpdated[k]; ok {
+   819					last[k] = lu
+   820				}
+   821				continue
+   822			}
+   823	
+   824			if !o.isOptimizableKey(k) {
+   825				// Keep A's value for non-optimizable keys.
+   826				_ = va
+   827				continue
+   828			}
+   829	
+   830			luA := a.LastUpdated[k]
+   831			luB := b.LastUpdated[k]
+   832			if luB > luA {
+   833				child[k] = vb
+   834				last[k] = luB
+   835			} else {
+   836				// Keep A.
+   837				last[k] = luA
+   838			}
+   839		}
+   840	
+   841		return child, last
+   842	}
+   843	
+   844	func primaryParamKey(c Candidate) string {
+   845		if c == nil {
+   846			return "prompt"
+   847		}
+   848		if _, ok := c["prompt"]; ok {
+   849			return "prompt"
+   850		}
+   851		// deterministic fallback: smallest key.
+   852		var best string
+   853		for k := range c {
+   854			if best == "" || k < best {
+   855				best = k
+   856			}
+   857		}
+   858		if best == "" {
+   859			return "prompt"
+   860		}
+   861		return best
+   862	}

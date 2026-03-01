@@ -1,0 +1,55 @@
+?   	github.com/go-go-golems/geppetto/cmd/examples/citations-event-stream	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/claude-tools	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/generic-tool-calling	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/geppetto-js-lab	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/middleware-inference	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/openai-tools	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/simple-inference	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/examples/simple-streaming-inference	[no test files]
+ok  	github.com/go-go-golems/geppetto/cmd/gen-meta	0.007s
+?   	github.com/go-go-golems/geppetto/cmd/geppetto-lint	[no test files]
+ok  	github.com/go-go-golems/geppetto/cmd/llm-runner	0.051s
+?   	github.com/go-go-golems/geppetto/cmd/llm-runner/templates	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/turnsdatalint	[no test files]
+?   	github.com/go-go-golems/geppetto/cmd/turnsrefactor	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/analysis/turnsdatalint	0.216s
+?   	github.com/go-go-golems/geppetto/pkg/analysis/turnsrefactor	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/doc	0.048s
+ok  	github.com/go-go-golems/geppetto/pkg/embeddings	0.947s
+?   	github.com/go-go-golems/geppetto/pkg/embeddings/config	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/events	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/events/structuredsink	0.039s
+?   	github.com/go-go-golems/geppetto/pkg/events/structuredsink/parsehelpers	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/helpers	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/inference/engine	0.005s
+ok  	github.com/go-go-golems/geppetto/pkg/inference/engine/factory	0.033s
+?   	github.com/go-go-golems/geppetto/pkg/inference/fixtures	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/inference/middleware	0.009s
+ok  	github.com/go-go-golems/geppetto/pkg/inference/session	0.005s
+ok  	github.com/go-go-golems/geppetto/pkg/inference/toolloop	0.016s
+ok  	github.com/go-go-golems/geppetto/pkg/inference/toolloop/enginebuilder	0.013s
+ok  	github.com/go-go-golems/geppetto/pkg/inference/tools	0.009s
+?   	github.com/go-go-golems/geppetto/pkg/js	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/js/modules/geppetto	0.087s
+?   	github.com/go-go-golems/geppetto/pkg/js/runtimebridge	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/sections	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/security	0.004s
+?   	github.com/go-go-golems/geppetto/pkg/steps	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/claude	0.015s
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/claude/api	0.025s
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/gemini	0.020s
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/openai	0.004s
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/openai_responses	0.009s
+ok  	github.com/go-go-golems/geppetto/pkg/steps/ai/settings	0.007s
+?   	github.com/go-go-golems/geppetto/pkg/steps/ai/settings/claude	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/steps/ai/settings/gemini	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/steps/ai/settings/ollama	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/steps/ai/settings/openai	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/steps/ai/types	[no test files]
+?   	github.com/go-go-golems/geppetto/pkg/steps/parse	[no test files]
+ok  	github.com/go-go-golems/geppetto/pkg/turns	0.004s
+ok  	github.com/go-go-golems/geppetto/pkg/turns/serde	0.006s
+?   	github.com/go-go-golems/geppetto/pkg/turns/toolblocks	[no test files]
+?   	github.com/go-go-golems/geppetto/ttmp/2026/02/12/GP-001-UPDATE-GLAZED--migrate-geppetto-and-pinocchio-to-glazed-facade-packages/scripts	[no test files]
+?   	github.com/go-go-golems/geppetto/ttmp/2026/02/20/GP-02-IMPROVE-INFERENCE-ARGUMENTS--extend-inference-metadata-for-provider-specific-arguments/scripts/test_glazed_pointer_nil	[no test files]
+?   	github.com/go-go-golems/geppetto/ttmp/2026/02/20/GP-16-UNIFY-TURNS-KEYS-CODEGEN-MERGE--unify-turns-key-constants-codegen-after-gp-02-merge-conflict/scripts	[no test files]

@@ -1,0 +1,669 @@
+     1	# Copyright (c) 2025 Lakshya A Agrawal and the GEPA contributors
+     2	# https://github.com/gepa-ai/gepa
+     3	
+     4	import hashlib
+     5	import json
+     6	import os
+     7	from collections import defaultdict
+     8	from collections.abc import Callable, Sequence
+     9	from dataclasses import dataclass, field
+    10	from typing import Any, ClassVar, Generic, Literal, TypeAlias
+    11	
+    12	from gepa.core.adapter import RolloutOutput
+    13	from gepa.core.data_loader import DataId
+    14	from gepa.gepa_utils import json_default
+    15	from gepa.logging.logger import LoggerProtocol
+    16	
+    17	# Types for GEPAState
+    18	ProgramIdx = int
+    19	
+    20	# Type aliases
+    21	ObjectiveScores: TypeAlias = dict[str, float]
+    22	FrontierType: TypeAlias = Literal["instance", "objective", "hybrid", "cartesian"]
+    23	"""Strategy for tracking Pareto frontiers: 'instance' (per validation example), 'objective' (per objective metric), 'hybrid' (both), or 'cartesian' (per example x objective)."""
+    24	FrontierKey: TypeAlias = DataId | str | tuple[str, DataId] | tuple[str, DataId, str]
+    25	"""Key type for frontier mappings depending on frontier_type."""
+    26	
+    27	CandidateHash: TypeAlias = str
+    28	CacheKey: TypeAlias = tuple[CandidateHash, DataId]
+    29	
+    30	
+    31	def _candidate_hash(candidate: dict[str, str]) -> CandidateHash:
+    32	    """Compute a deterministic hash of a candidate dictionary."""
+    33	    return hashlib.sha256(json.dumps(sorted(candidate.items())).encode()).hexdigest()
+    34	
+    35	
+    36	@dataclass
+    37	class CachedEvaluation(Generic[RolloutOutput]):
+    38	    """Cached evaluation result for a (candidate, example) pair."""
+    39	
+    40	    output: RolloutOutput
+    41	    score: float
+    42	    objective_scores: ObjectiveScores | None
+    43	
+    44	
+    45	@dataclass
+    46	class EvaluationCache(Generic[RolloutOutput, DataId]):
+    47	    """Cache for storing evaluation results of (candidate, example) pairs."""
+    48	
+    49	    _cache: dict[CacheKey, CachedEvaluation[RolloutOutput]] = field(default_factory=dict)
+    50	
+    51	    def get(self, candidate: dict[str, str], example_id: DataId) -> CachedEvaluation[RolloutOutput] | None:
+    52	        """Retrieve cached evaluation result if it exists."""
+    53	        return self._cache.get((_candidate_hash(candidate), example_id))
+    54	
+    55	    def put(
+    56	        self,
+    57	        candidate: dict[str, str],
+    58	        example_id: DataId,
+    59	        output: RolloutOutput,
+    60	        score: float,
+    61	        objective_scores: ObjectiveScores | None = None,
+    62	    ) -> None:
+    63	        """Store an evaluation result in the cache."""
+    64	        self._cache[(_candidate_hash(candidate), example_id)] = CachedEvaluation(output, score, objective_scores)
+    65	
+    66	    def get_batch(
+    67	        self, candidate: dict[str, str], example_ids: list[DataId]
+    68	    ) -> tuple[dict[DataId, CachedEvaluation[RolloutOutput]], list[DataId]]:
+    69	        """Look up cached results for a batch. Returns (cached_results, uncached_ids)."""
+    70	        h = _candidate_hash(candidate)
+    71	        cached, uncached = {}, []
+    72	        for eid in example_ids:
+    73	            if entry := self._cache.get((h, eid)):
+    74	                cached[eid] = entry
+    75	            else:
+    76	                uncached.append(eid)
+    77	        return cached, uncached
+    78	
+    79	    def put_batch(
+    80	        self,
+    81	        candidate: dict[str, str],
+    82	        example_ids: list[DataId],
+    83	        outputs: list[RolloutOutput],
+    84	        scores: list[float],
+    85	        objective_scores_list: Sequence[ObjectiveScores] | None = None,
+    86	    ) -> None:
+    87	        """Store evaluation results for a batch of examples."""
+    88	        h = _candidate_hash(candidate)
+    89	        for i, eid in enumerate(example_ids):
+    90	            self._cache[(h, eid)] = CachedEvaluation(
+    91	                outputs[i], scores[i], objective_scores_list[i] if objective_scores_list else None
+    92	            )
+    93	
+    94	    def evaluate_with_cache_full(
+    95	        self,
+    96	        candidate: dict[str, str],
+    97	        example_ids: list[DataId],
+    98	        fetcher: Callable[[list[DataId]], Any],
+    99	        evaluator: Callable[[Any, dict[str, str]], tuple[Any, list[float], Sequence[ObjectiveScores] | None]],
+   100	    ) -> tuple[dict[DataId, RolloutOutput], dict[DataId, float], dict[DataId, ObjectiveScores] | None, int]:
+   101	        """
+   102	        Evaluate using cache, returning full results.
+   103	
+   104	        Returns (outputs_by_id, scores_by_id, objective_scores_by_id, num_actual_evals).
+   105	        """
+   106	        cached, uncached_ids = self.get_batch(candidate, example_ids)
+   107	
+   108	        outputs_by_id: dict[DataId, RolloutOutput] = {eid: c.output for eid, c in cached.items()}
+   109	        scores_by_id: dict[DataId, float] = {eid: c.score for eid, c in cached.items()}
+   110	        objective_by_id: dict[DataId, ObjectiveScores] | None = None
+   111	
+   112	        # Populate objective scores from cache
+   113	        for eid, c in cached.items():
+   114	            if c.objective_scores is not None:
+   115	                objective_by_id = objective_by_id or {}
+   116	                objective_by_id[eid] = c.objective_scores
+   117	
+   118	        # Evaluate uncached examples
+   119	        if uncached_ids:
+   120	            batch = fetcher(uncached_ids)
+   121	            outputs, scores, obj_scores = evaluator(batch, candidate)
+   122	            for idx, eid in enumerate(uncached_ids):
+   123	                outputs_by_id[eid] = outputs[idx]
+   124	                scores_by_id[eid] = scores[idx]
+   125	                if obj_scores is not None:
+   126	                    objective_by_id = objective_by_id or {}
+   127	                    objective_by_id[eid] = obj_scores[idx]
+   128	            self.put_batch(candidate, uncached_ids, outputs, scores, obj_scores)
+   129	
+   130	        return outputs_by_id, scores_by_id, objective_by_id, len(uncached_ids)
+   131	
+   132	
+   133	@dataclass(slots=True)
+   134	class ValsetEvaluation(Generic[RolloutOutput, DataId]):
+   135	    """Container for evaluation results on a validation set batch."""
+   136	
+   137	    outputs_by_val_id: dict[DataId, RolloutOutput]
+   138	    scores_by_val_id: dict[DataId, float]
+   139	    objective_scores_by_val_id: dict[DataId, ObjectiveScores] | None = None
+   140	
+   141	
+   142	class GEPAState(Generic[RolloutOutput, DataId]):
+   143	    """Internal persistent state of a GEPA optimization run.
+   144	
+   145	    Tracks all explored candidates, their per-example and per-objective scores,
+   146	    Pareto frontiers, evaluation budget, and optional evaluation cache.
+   147	    Saved/loaded automatically when ``EngineConfig.run_dir`` is set.
+   148	
+   149	    Users interact with this indirectly via :class:`~gepa.core.result.GEPAResult`
+   150	    returned by :func:`~gepa.optimize_anything.optimize_anything`.
+   151	    """
+   152	
+   153	    _VALIDATION_SCHEMA_VERSION: ClassVar[int] = 4
+   154	    # Attributes that are runtime-only and should not be serialized (e.g., callback hooks, caches)
+   155	    _EXCLUDED_FROM_SERIALIZATION: ClassVar[frozenset[str]] = frozenset({"_budget_hooks"})
+   156	
+   157	    program_candidates: list[dict[str, str]]
+   158	    parent_program_for_candidate: list[list[ProgramIdx | None]]
+   159	    prog_candidate_val_subscores: list[dict[DataId, float]]
+   160	    prog_candidate_objective_scores: list[ObjectiveScores]
+   161	
+   162	    pareto_front_valset: dict[DataId, float]
+   163	    program_at_pareto_front_valset: dict[DataId, set[ProgramIdx]]
+   164	    objective_pareto_front: ObjectiveScores
+   165	    program_at_pareto_front_objectives: dict[str, set[ProgramIdx]]
+   166	    pareto_front_cartesian: dict[tuple[DataId, str], float]
+   167	    program_at_pareto_front_cartesian: dict[tuple[DataId, str], set[ProgramIdx]]
+   168	
+   169	    list_of_named_predictors: list[str]
+   170	    named_predictor_id_to_update_next_for_program_candidate: list[int]
+   171	
+   172	    i: int
+   173	    num_full_ds_evals: int
+   174	
+   175	    total_num_evals: int
+   176	
+   177	    num_metric_calls_by_discovery: list[int]
+   178	
+   179	    full_program_trace: list[dict[str, Any]]
+   180	    best_outputs_valset: dict[DataId, list[tuple[ProgramIdx, RolloutOutput]]] | None
+   181	
+   182	    validation_schema_version: int
+   183	
+   184	    # Optional evaluation cache for (candidate, example) pairs
+   185	    evaluation_cache: "EvaluationCache[RolloutOutput, DataId] | None"
+   186	
+   187	    def __init__(
+   188	        self,
+   189	        seed_candidate: dict[str, str],
+   190	        base_evaluation: ValsetEvaluation[RolloutOutput, DataId],
+   191	        track_best_outputs: bool = False,
+   192	        frontier_type: FrontierType = "instance",
+   193	        evaluation_cache: "EvaluationCache[RolloutOutput, DataId] | None" = None,
+   194	    ):
+   195	        self.program_candidates = [dict(seed_candidate)]
+   196	        self.prog_candidate_val_subscores = [dict(base_evaluation.scores_by_val_id)]
+   197	
+   198	        base_objective_aggregates = self._aggregate_objective_scores(base_evaluation.objective_scores_by_val_id)
+   199	        self.prog_candidate_objective_scores = [base_objective_aggregates]
+   200	
+   201	        self.parent_program_for_candidate = [[None]]
+   202	
+   203	        self.frontier_type: FrontierType = frontier_type
+   204	        self.pareto_front_valset = dict(base_evaluation.scores_by_val_id)
+   205	        self.program_at_pareto_front_valset = {val_id: {0} for val_id in base_evaluation.scores_by_val_id.keys()}
+   206	        self.objective_pareto_front = dict(base_objective_aggregates)
+   207	        self.program_at_pareto_front_objectives = {objective: {0} for objective in base_objective_aggregates.keys()}
+   208	
+   209	        # Validate that objective scores are provided for frontier types that require them
+   210	        if frontier_type in ("objective", "hybrid", "cartesian"):
+   211	            if not base_evaluation.objective_scores_by_val_id:
+   212	                raise ValueError(
+   213	                    f"frontier_type='{frontier_type}' requires objective_scores to be provided by the evaluator, "
+   214	                    f"but none were found. Use an evaluator that returns objective_scores or use frontier_type='instance'."
+   215	                )
+   216	
+   217	        # Cartesian frontier will be base_evaluation.objective_scores_by_val_id
+   218	        if frontier_type == "cartesian":
+   219	            assert base_evaluation.objective_scores_by_val_id is not None  # Already validated above
+   220	            self.pareto_front_cartesian = {
+   221	                (val_id, objective): objective_score
+   222	                for val_id, objective_scores in base_evaluation.objective_scores_by_val_id.items()
+   223	                for objective, objective_score in objective_scores.items()
+   224	            }
+   225	            self.program_at_pareto_front_cartesian = {
+   226	                (val_id, objective): {0}
+   227	                for val_id, objective_scores in base_evaluation.objective_scores_by_val_id.items()
+   228	                for objective in objective_scores.keys()
+   229	            }
+   230	        else:
+   231	            self.pareto_front_cartesian = {}
+   232	            self.program_at_pareto_front_cartesian = {}
+   233	
+   234	        self.list_of_named_predictors = list(seed_candidate.keys())
+   235	        self.named_predictor_id_to_update_next_for_program_candidate = [0]
+   236	        self.i = -1
+   237	
+   238	        self.num_metric_calls_by_discovery = [0]
+   239	
+   240	        if track_best_outputs:
+   241	            self.best_outputs_valset = {
+   242	                val_id: [(0, output)] for val_id, output in base_evaluation.outputs_by_val_id.items()
+   243	            }
+   244	        else:
+   245	            self.best_outputs_valset = None
+   246	
+   247	        self.full_program_trace = []
+   248	        self.validation_schema_version = self._VALIDATION_SCHEMA_VERSION
+   249	        self.evaluation_cache = evaluation_cache
+   250	
+   251	    def is_consistent(self) -> bool:
+   252	        assert len(self.program_candidates) == len(self.parent_program_for_candidate)
+   253	        assert len(self.program_candidates) == len(self.named_predictor_id_to_update_next_for_program_candidate)
+   254	        assert len(self.program_candidates) == len(self.prog_candidate_val_subscores)
+   255	        assert len(self.program_candidates) == len(self.prog_candidate_objective_scores)
+   256	        assert len(self.program_candidates) == len(self.num_metric_calls_by_discovery)
+   257	
+   258	        assert len(self.pareto_front_valset) == len(self.program_at_pareto_front_valset)
+   259	        assert set(self.pareto_front_valset.keys()) == set(self.program_at_pareto_front_valset.keys())
+   260	        assert set(self.objective_pareto_front.keys()) == set(self.program_at_pareto_front_objectives.keys())
+   261	
+   262	        for front in self.program_at_pareto_front_valset.values():
+   263	            for prog_idx in front:
+   264	                assert prog_idx < len(self.program_candidates), (
+   265	                    "Program index in valset pareto front exceeds number of program candidates"
+   266	                )
+   267	
+   268	        return True
+   269	
+   270	    # Budget Hook Mechanism
+   271	    def add_budget_hook(self, hook: Callable[[int, int], None]) -> None:
+   272	        """Register a callback to be called whenever total_num_evals changes.
+   273	
+   274	        Args:
+   275	            hook: A callable that receives (new_total, delta) when evals are incremented.
+   276	        """
+   277	        if not hasattr(self, "_budget_hooks"):
+   278	            self._budget_hooks: list[Callable[[int, int], None]] = []
+   279	        self._budget_hooks.append(hook)
+   280	
+   281	    def increment_evals(self, count: int) -> None:
+   282	        """Increment total_num_evals and notify all registered hooks.
+   283	
+   284	        Args:
+   285	            count: Number of evaluations to add.
+   286	        """
+   287	        self.total_num_evals += count
+   288	        # Lazy init handles states loaded from disk (which won't have _budget_hooks)
+   289	        hooks = getattr(self, "_budget_hooks", None)
+   290	        if hooks:
+   291	            for hook in hooks:
+   292	                hook(self.total_num_evals, count)
+   293	
+   294	    def save(self, run_dir: str | None, *, use_cloudpickle: bool = False) -> None:
+   295	        if run_dir is None:
+   296	            return
+   297	        with open(os.path.join(run_dir, "gepa_state.bin"), "wb") as f:
+   298	            if use_cloudpickle:
+   299	                import cloudpickle as pickle  # type: ignore[import-not-found]
+   300	            else:
+   301	                import pickle
+   302	            # Exclude runtime-only attributes that can't be serialized (e.g., callback hooks)
+   303	            serialized = {k: v for k, v in self.__dict__.items() if k not in self._EXCLUDED_FROM_SERIALIZATION}
+   304	            serialized["validation_schema_version"] = GEPAState._VALIDATION_SCHEMA_VERSION
+   305	            pickle.dump(serialized, f)
+   306	
+   307	    @staticmethod
+   308	    def load(run_dir: str) -> "GEPAState[RolloutOutput, DataId]":
+   309	        with open(os.path.join(run_dir, "gepa_state.bin"), "rb") as f:
+   310	            import pickle
+   311	
+   312	            data = pickle.load(f)
+   313	
+   314	        # handle schema migration
+   315	        version = data.get("validation_schema_version")
+   316	        if version is None or version < 2:
+   317	            GEPAState._migrate_from_legacy_state_v0(data)
+   318	            version = data.get("validation_schema_version")
+   319	        if version is None or version < GEPAState._VALIDATION_SCHEMA_VERSION:
+   320	            GEPAState._upgrade_state_dict(data)
+   321	
+   322	        state = GEPAState.__new__(GEPAState)
+   323	        state.__dict__.update(data)
+   324	
+   325	        state.validation_schema_version = GEPAState._VALIDATION_SCHEMA_VERSION
+   326	        assert len(state.program_candidates) == len(state.prog_candidate_val_subscores)
+   327	        assert len(state.program_candidates) == len(state.prog_candidate_objective_scores)
+   328	        assert len(state.program_candidates) == len(state.num_metric_calls_by_discovery)
+   329	        assert len(state.program_candidates) == len(state.parent_program_for_candidate)
+   330	        assert len(state.program_candidates) == len(state.named_predictor_id_to_update_next_for_program_candidate)
+   331	        assert len(state.pareto_front_valset) == len(state.program_at_pareto_front_valset)
+   332	        assert set(state.pareto_front_valset.keys()) == set(state.program_at_pareto_front_valset.keys())
+   333	        assert set(state.objective_pareto_front.keys()) == set(state.program_at_pareto_front_objectives.keys())
+   334	        return state
+   335	
+   336	    @staticmethod
+   337	    def _migrate_from_legacy_state_v0(d: dict[str, Any]) -> None:
+   338	        assert isinstance(d, dict)
+   339	        assert "prog_candidate_val_subscores" in d
+   340	        assert isinstance(d["prog_candidate_val_subscores"], list)
+   341	        assert all(isinstance(scores, list) for scores in d["prog_candidate_val_subscores"])
+   342	        legacy_scores: list[list[float]] = d.pop("prog_candidate_val_subscores", [])
+   343	        d["prog_candidate_val_subscores"] = [dict(enumerate(scores)) for scores in legacy_scores]
+   344	
+   345	        pareto_front = d.get("pareto_front_valset")
+   346	        if isinstance(pareto_front, list):
+   347	            d["pareto_front_valset"] = dict(enumerate(pareto_front))
+   348	
+   349	        program_at_front = d.get("program_at_pareto_front_valset")
+   350	        if isinstance(program_at_front, list):
+   351	            d["program_at_pareto_front_valset"] = {idx: set(front) for idx, front in enumerate(program_at_front)}
+   352	
+   353	        best_outputs = d.get("best_outputs_valset")
+   354	        if isinstance(best_outputs, list):
+   355	            d["best_outputs_valset"] = {idx: list(outputs) for idx, outputs in enumerate(best_outputs)}
+   356	
+   357	        d["validation_schema_version"] = 2
+   358	
+   359	    @staticmethod
+   360	    def _upgrade_state_dict(d: dict[str, Any]) -> None:
+   361	        num_candidates = len(d.get("program_candidates", []))
+   362	        if "prog_candidate_objective_scores" not in d:
+   363	            d["prog_candidate_objective_scores"] = [{} for _ in range(num_candidates)]
+   364	        if "objective_pareto_front" not in d:
+   365	            d["objective_pareto_front"] = {}
+   366	        if "program_at_pareto_front_objectives" not in d:
+   367	            d["program_at_pareto_front_objectives"] = {}
+   368	        if "frontier_type" not in d:
+   369	            d["frontier_type"] = "instance"
+   370	            # Since frontier_type instance does not require "pareto_front_cartesian" and "program_at_pareto_front_cartesian", we can safely set them to empty dicts.
+   371	            d["pareto_front_cartesian"] = {}
+   372	            d["program_at_pareto_front_cartesian"] = {}
+   373	        # evaluation_cache is not persisted across runs by default; initialize to None if missing
+   374	        if "evaluation_cache" not in d:
+   375	            d["evaluation_cache"] = None
+   376	        d["validation_schema_version"] = GEPAState._VALIDATION_SCHEMA_VERSION
+   377	
+   378	    @staticmethod
+   379	    def _aggregate_objective_scores(
+   380	        val_objective_scores: dict[DataId, ObjectiveScores] | None,
+   381	    ) -> ObjectiveScores:
+   382	        if not val_objective_scores:
+   383	            return {}
+   384	        totals: dict[str, float] = {}
+   385	        counts: dict[str, int] = {}
+   386	        for objective_dict in val_objective_scores.values():
+   387	            for objective, score in objective_dict.items():
+   388	                totals[objective] = totals.get(objective, 0.0) + score
+   389	                counts[objective] = counts.get(objective, 0) + 1
+   390	        return {
+   391	            objective: totals[objective] / counts[objective] for objective in totals.keys() if counts[objective] > 0
+   392	        }
+   393	
+   394	    def get_program_average_val_subset(self, program_idx: int) -> tuple[float, int]:
+   395	        # TODO: This should be only used/handled by the val_evaluation_policy, and never used directly.
+   396	        scores = self.prog_candidate_val_subscores[program_idx]
+   397	        if not scores:
+   398	            return float("-inf"), 0
+   399	        num_samples = len(scores)
+   400	        avg = sum(scores.values()) / num_samples
+   401	        return avg, num_samples
+   402	
+   403	    @property
+   404	    def valset_evaluations(self) -> dict[DataId, list[ProgramIdx]]:
+   405	        """
+   406	        Valset examples by id and programs that have evaluated them. Keys include only validation
+   407	        ids that have been scored at least once.
+   408	        """
+   409	        result: dict[DataId, list[ProgramIdx]] = defaultdict(list)
+   410	        for program_idx, val_scores in enumerate(self.prog_candidate_val_subscores):
+   411	            for val_id in val_scores.keys():
+   412	                result[val_id].append(program_idx)
+   413	        return result
+   414	
+   415	    @property
+   416	    def program_full_scores_val_set(self) -> list[float]:
+   417	        # TODO: This should be using the val_evaluation_policy instead of the get_program_average_val_subset method to calculate the scores.
+   418	        return [
+   419	            self.get_program_average_val_subset(program_idx)[0]
+   420	            for program_idx in range(len(self.prog_candidate_val_subscores))
+   421	        ]
+   422	
+   423	    @property
+   424	    def per_program_tracked_scores(self) -> list[float]:
+   425	        return [
+   426	            self.get_program_average_val_subset(program_idx)[0]
+   427	            for program_idx in range(len(self.prog_candidate_val_subscores))
+   428	        ]
+   429	
+   430	    def _update_objective_pareto_front(self, objective_scores: ObjectiveScores, program_idx: ProgramIdx) -> None:
+   431	        if not objective_scores:
+   432	            return
+   433	        for objective, score in objective_scores.items():
+   434	            prev_score = self.objective_pareto_front.get(objective, float("-inf"))
+   435	            if score > prev_score:
+   436	                self.objective_pareto_front[objective] = score
+   437	                self.program_at_pareto_front_objectives[objective] = {program_idx}
+   438	            elif score == prev_score:
+   439	                front = self.program_at_pareto_front_objectives.setdefault(objective, set())
+   440	                front.add(program_idx)
+   441	
+   442	    def _update_pareto_front_for_val_id(
+   443	        self,
+   444	        val_id: DataId,
+   445	        score: float,
+   446	        program_idx: ProgramIdx,
+   447	        output: RolloutOutput | None,
+   448	        run_dir: str | None,
+   449	        iteration: int,
+   450	    ) -> None:
+   451	        prev_score = self.pareto_front_valset.get(val_id, float("-inf"))
+   452	        if score > prev_score:
+   453	            self.pareto_front_valset[val_id] = score
+   454	            self.program_at_pareto_front_valset[val_id] = {program_idx}
+   455	            if self.best_outputs_valset is not None and output is not None:
+   456	                self.best_outputs_valset[val_id] = [(program_idx, output)]
+   457	                if run_dir is not None:
+   458	                    task_dir = os.path.join(run_dir, "generated_best_outputs_valset", f"task_{val_id}")
+   459	                    os.makedirs(task_dir, exist_ok=True)
+   460	                    with open(os.path.join(task_dir, f"iter_{iteration}_prog_{program_idx}.json"), "w") as fout:
+   461	                        json.dump(output, fout, indent=4, default=json_default)
+   462	        elif score == prev_score:
+   463	            pareto_front = self.program_at_pareto_front_valset.setdefault(val_id, set())
+   464	            pareto_front.add(program_idx)
+   465	            if self.best_outputs_valset is not None and output is not None:
+   466	                self.best_outputs_valset[val_id].append((program_idx, output))
+   467	
+   468	    def _update_pareto_front_for_cartesian(
+   469	        self,
+   470	        val_id: DataId,
+   471	        objective: str,
+   472	        objective_score: float,
+   473	        program_idx: ProgramIdx,
+   474	    ) -> None:
+   475	        prev_score = self.pareto_front_cartesian.get((val_id, objective), float("-inf"))
+   476	        if objective_score > prev_score:
+   477	            self.pareto_front_cartesian[(val_id, objective)] = objective_score
+   478	            self.program_at_pareto_front_cartesian[(val_id, objective)] = {program_idx}
+   479	        elif objective_score == prev_score:
+   480	            front = self.program_at_pareto_front_cartesian.setdefault((val_id, objective), set())
+   481	            front.add(program_idx)
+   482	
+   483	    def update_state_with_new_program(
+   484	        self,
+   485	        parent_program_idx: list[ProgramIdx],
+   486	        new_program: dict[str, str],
+   487	        valset_evaluation: ValsetEvaluation,
+   488	        run_dir: str | None,
+   489	        num_metric_calls_by_discovery_of_new_program: int,
+   490	    ) -> ProgramIdx:
+   491	        new_program_idx = len(self.program_candidates)
+   492	        self.program_candidates.append(dict(new_program))
+   493	        self.num_metric_calls_by_discovery.append(num_metric_calls_by_discovery_of_new_program)
+   494	
+   495	        max_predictor_id = max(
+   496	            [self.named_predictor_id_to_update_next_for_program_candidate[p] for p in parent_program_idx],
+   497	            default=0,
+   498	        )
+   499	        self.named_predictor_id_to_update_next_for_program_candidate.append(max_predictor_id)
+   500	        self.parent_program_for_candidate.append(list(parent_program_idx))
+   501	
+   502	        valset_scores = dict(valset_evaluation.scores_by_val_id)
+   503	        self.prog_candidate_val_subscores.append(valset_scores)
+   504	        objective_scores = self._aggregate_objective_scores(valset_evaluation.objective_scores_by_val_id)
+   505	        self.prog_candidate_objective_scores.append(objective_scores)
+   506	
+   507	        for val_id, score in valset_scores.items():
+   508	            output = valset_evaluation.outputs_by_val_id.get(val_id) if valset_evaluation.outputs_by_val_id else None
+   509	            self._update_pareto_front_for_val_id(
+   510	                val_id,
+   511	                score,
+   512	                new_program_idx,
+   513	                output,
+   514	                run_dir,
+   515	                self.i + 1,
+   516	            )
+   517	
+   518	        self._update_objective_pareto_front(objective_scores, new_program_idx)
+   519	
+   520	        if self.frontier_type in ("objective", "hybrid", "cartesian"):
+   521	            if not valset_evaluation.objective_scores_by_val_id:
+   522	                raise ValueError(
+   523	                    f"frontier_type='{self.frontier_type}' requires objective_scores to be provided by the evaluator, "
+   524	                    f"but none were found in the evaluation result."
+   525	                )
+   526	
+   527	        if self.frontier_type == "cartesian":
+   528	            assert valset_evaluation.objective_scores_by_val_id is not None  # Validated above
+   529	            for val_id, objective_scores in valset_evaluation.objective_scores_by_val_id.items():
+   530	                for objective, objective_score in objective_scores.items():
+   531	                    self._update_pareto_front_for_cartesian(
+   532	                        val_id,
+   533	                        objective,
+   534	                        objective_score,
+   535	                        new_program_idx,
+   536	                    )
+   537	
+   538	        return new_program_idx
+   539	
+   540	    def _get_pareto_front_mapping(self, frontier_type: FrontierType) -> dict[FrontierKey, set[ProgramIdx]]:
+   541	        if frontier_type == "instance":
+   542	            return {val_id: set(front) for val_id, front in self.program_at_pareto_front_valset.items()}
+   543	        if frontier_type == "objective":
+   544	            return {objective: set(front) for objective, front in self.program_at_pareto_front_objectives.items()}
+   545	        if frontier_type == "hybrid":
+   546	            combined: dict[FrontierKey, set[ProgramIdx]] = {
+   547	                ("val_id", val_id): set(front) for val_id, front in self.program_at_pareto_front_valset.items()
+   548	            }
+   549	            for objective, front in self.program_at_pareto_front_objectives.items():
+   550	                combined[("objective", objective)] = set(front)
+   551	            return combined
+   552	        if frontier_type == "cartesian":
+   553	            return {
+   554	                ("cartesian", val_id, objective): set(front)
+   555	                for (val_id, objective), front in self.program_at_pareto_front_cartesian.items()
+   556	            }
+   557	        raise ValueError(f"Unknown frontier_type: {frontier_type}")
+   558	
+   559	    def get_pareto_front_mapping(self) -> dict[FrontierKey, set[ProgramIdx]]:
+   560	        """Return frontier key to best-program-indices mapping based on configured frontier_type."""
+   561	        return self._get_pareto_front_mapping(self.frontier_type)
+   562	
+   563	    def cached_evaluate(
+   564	        self,
+   565	        candidate: dict[str, str],
+   566	        example_ids: list[DataId],
+   567	        fetcher: Callable[[list[DataId]], Any],
+   568	        evaluator: Callable[[Any, dict[str, str]], tuple[Any, list[float], Sequence[ObjectiveScores] | None]],
+   569	    ) -> tuple[list[float], int]:
+   570	        """Evaluate with optional caching. Returns (scores, num_actual_evals)."""
+   571	        _, scores_by_id, _, num_actual_evals = self.cached_evaluate_full(candidate, example_ids, fetcher, evaluator)
+   572	        return [scores_by_id[eid] for eid in example_ids], num_actual_evals
+   573	
+   574	    def cached_evaluate_full(
+   575	        self,
+   576	        candidate: dict[str, str],
+   577	        example_ids: list[DataId],
+   578	        fetcher: Callable[[list[DataId]], Any],
+   579	        evaluator: Callable[[Any, dict[str, str]], tuple[Any, list[float], Sequence[ObjectiveScores] | None]],
+   580	    ) -> tuple[dict[DataId, RolloutOutput], dict[DataId, float], dict[DataId, ObjectiveScores] | None, int]:
+   581	        """Evaluate with optional caching, returning full results."""
+   582	        if self.evaluation_cache is not None:
+   583	            return self.evaluation_cache.evaluate_with_cache_full(candidate, example_ids, fetcher, evaluator)
+   584	        batch = fetcher(example_ids)
+   585	        outputs, scores, objective_scores = evaluator(batch, candidate)
+   586	        outputs_by_id = dict(zip(example_ids, outputs, strict=False))
+   587	        scores_by_id = dict(zip(example_ids, scores, strict=False))
+   588	        objective_by_id = dict(zip(example_ids, objective_scores, strict=False)) if objective_scores else None
+   589	        return outputs_by_id, scores_by_id, objective_by_id, len(example_ids)
+   590	
+   591	
+   592	def write_eval_scores_to_directory(scores: dict[DataId, float], output_dir: str) -> None:
+   593	    for val_id, score in scores.items():
+   594	        task_dir = os.path.join(output_dir, f"task_{val_id}")
+   595	        os.makedirs(task_dir, exist_ok=True)
+   596	        with open(os.path.join(task_dir, f"iter_{0}_prog_0.json"), "w") as f:
+   597	            json.dump(score, f, indent=4, default=json_default)
+   598	
+   599	
+   600	def write_eval_outputs_to_directory(outputs, output_dir: str) -> None:
+   601	    """
+   602	    Write generated rollout outputs (not scalar scores) to disk.
+   603	
+   604	    Structure:
+   605	      {output_dir}/task_{val_id}/iter_0_prog_0.json
+   606	
+   607	    This directory is used to store best outputs for inspection/reuse.
+   608	    """
+   609	    for val_id, output in outputs.items():
+   610	        task_dir = os.path.join(output_dir, f"task_{val_id}")
+   611	        os.makedirs(task_dir, exist_ok=True)
+   612	        with open(os.path.join(task_dir, "iter_0_prog_0.json"), "w") as f:
+   613	            json.dump(output, f, indent=4, default=json_default)
+   614	
+   615	
+   616	def initialize_gepa_state(
+   617	    run_dir: str | None,
+   618	    logger: LoggerProtocol,
+   619	    seed_candidate: dict[str, str],
+   620	    valset_evaluator: Callable[
+   621	        [dict[str, str]],
+   622	        ValsetEvaluation[RolloutOutput, DataId],
+   623	    ],
+   624	    track_best_outputs: bool = False,
+   625	    frontier_type: FrontierType = "instance",
+   626	    evaluation_cache: "EvaluationCache[RolloutOutput, DataId] | None" = None,
+   627	) -> GEPAState[RolloutOutput, DataId]:
+   628	    if run_dir is not None and os.path.exists(os.path.join(run_dir, "gepa_state.bin")):
+   629	        logger.log("Loading gepa state from run dir")
+   630	        gepa_state = GEPAState.load(run_dir)
+   631	        if gepa_state.frontier_type != frontier_type:
+   632	            raise ValueError(
+   633	                f"Frontier type mismatch: requested '{frontier_type}' but loaded state has '{gepa_state.frontier_type}'. "
+   634	                f"Use a different run_dir or match the frontier_type parameter."
+   635	            )
+   636	        # Sync cache with current run's cache_evaluation setting:
+   637	        # - If caching is disabled (evaluation_cache is None), clear any loaded cache
+   638	        #   to respect the current run's cache_evaluation=False setting
+   639	        # - If caching is enabled and the loaded state has a cache, preserve it
+   640	        #   (allows resuming with cached results from previous run)
+   641	        # - If caching is enabled but no cache exists in loaded state, use the new empty cache
+   642	        if evaluation_cache is None:
+   643	            gepa_state.evaluation_cache = None
+   644	        elif gepa_state.evaluation_cache is None:
+   645	            gepa_state.evaluation_cache = evaluation_cache
+   646	        # else: keep the loaded cache (gepa_state.evaluation_cache is already set)
+   647	    else:
+   648	        num_evals_run = 0
+   649	
+   650	        eval_result = valset_evaluator(seed_candidate)
+   651	        if run_dir is not None:
+   652	            write_eval_outputs_to_directory(
+   653	                eval_result.outputs_by_val_id, os.path.join(run_dir, "generated_best_outputs_valset")
+   654	            )
+   655	
+   656	        num_evals_run += len(eval_result.scores_by_val_id)
+   657	
+   658	        gepa_state = GEPAState(
+   659	            seed_candidate,
+   660	            eval_result,
+   661	            track_best_outputs=track_best_outputs,
+   662	            frontier_type=frontier_type,
+   663	            evaluation_cache=evaluation_cache,
+   664	        )
+   665	
+   666	        gepa_state.num_full_ds_evals = 1
+   667	        gepa_state.total_num_evals = num_evals_run
+   668	
+   669	    return gepa_state

@@ -1,0 +1,6 @@
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/proposer/merge.py:210:class MergeProposer(ProposeNewCandidate[DataId]):
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/api.py:41:def optimize(
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/optimize_anything.py:694:class ReflectionConfig:
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/optimize_anything.py:720:class MergeConfig:
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/optimize_anything.py:790:class GEPAConfig:
+/home/manuel/workspaces/2026-02-22/add-gepa-optimizer/gepa/src/gepa/optimize_anything.py:998:def optimize_anything(

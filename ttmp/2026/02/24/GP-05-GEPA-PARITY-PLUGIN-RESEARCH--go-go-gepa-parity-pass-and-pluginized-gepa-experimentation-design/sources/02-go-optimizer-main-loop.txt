@@ -1,0 +1,381 @@
+   240	}
+   241	
+   242	func (o *Optimizer) Optimize(ctx context.Context, seed Candidate, examples []any) (*Result, error) {
+   243		if o == nil {
+   244			return nil, fmt.Errorf("optimizer is nil")
+   245		}
+   246		if o.eval == nil {
+   247			return nil, fmt.Errorf("optimizer: evaluator is nil")
+   248		}
+   249		if o.reflector == nil || o.reflector.Engine == nil {
+   250			return nil, fmt.Errorf("optimizer: reflector is nil")
+   251		}
+   252		if len(seed) == 0 {
+   253			return nil, fmt.Errorf("optimizer: seed candidate is empty")
+   254		}
+   255		if len(examples) == 0 {
+   256			return nil, fmt.Errorf("optimizer: dataset is empty")
+   257		}
+   258	
+   259		keys, err := deriveOptimizableKeys(o.cfg, seed)
+   260		if err != nil {
+   261			return nil, err
+   262		}
+   263		o.paramKeys = keys
+   264		o.mergesDue = 0
+   265		o.iteration = 0
+   266	
+   267		// Initialize pool with seed.
+   268		seedLastUpdated := map[string]CandidateID{}
+   269		for k := range seed {
+   270			seedLastUpdated[k] = 0
+   271		}
+   272		seedNode := &candidateNode{
+   273			ID:             0,
+   274			ParentID:       -1,
+   275			Parent2ID:      -1,
+   276			Candidate:      cloneCandidate(seed),
+   277			CreatedAt:      o.cfg.Now(),
+   278			Evaluations:    map[int]EvalResult{},
+   279			Operation:      "seed",
+   280			NextParamIndex: 0,
+   281			LastUpdated:    seedLastUpdated,
+   282		}
+   283		o.pool = append(o.pool, seedNode)
+   284	
+   285		// Evaluate seed on an initial batch (to get some ASI).
+   286		initIdx := o.sampleBatchIndices(len(examples), o.cfg.BatchSize, o.remainingBudget())
+   287		if len(initIdx) == 0 {
+   288			return nil, fmt.Errorf("optimizer: insufficient budget to evaluate seed")
+   289		}
+   290		if _, err := o.ensureEvaluated(ctx, seedNode, examples, initIdx); err != nil {
+   291			return nil, err
+   292		}
+   293	
+   294		bestNode := seedNode
+   295	
+   296		for o.callsUsed < o.cfg.MaxEvalCalls {
+   297			o.iteration++
+   298			callsAtIterStart := o.callsUsed
+   299			remaining := o.remainingBudget()
+   300			if remaining <= 0 {
+   301				break
+   302			}
+   303	
+   304			parent := o.selectParent()
+   305			if parent == nil {
+   306				break
+   307			}
+   308	
+   309			useMerge := o.shouldAttemptMerge()
+   310			var parent2 *candidateNode
+   311			if useMerge {
+   312				parent2 = o.selectParentDistinct(parent.ID)
+   313				if parent2 == nil {
+   314					useMerge = false
+   315				}
+   316			}
+   317	
+   318			// Plan evaluations within remaining budget.
+   319			// Worst case:
+   320			//  - mutation: evaluate parent + child on the same minibatch  => 2 * batchSize
+   321			//  - merge: evaluate parentA + parentB + child on minibatch   => 3 * batchSize
+   322			mult := 2
+   323			if useMerge {
+   324				mult = 3
+   325			}
+   326			batchSize := o.cfg.BatchSize
+   327			if batchSize*mult > remaining {
+   328				batchSize = remaining / mult
+   329			}
+   330			if batchSize <= 0 {
+   331				break
+   332			}
+   333	
+   334			batchIdx := o.sampleBatchIndices(len(examples), batchSize, remaining)
+   335			if len(batchIdx) == 0 {
+   336				break
+   337			}
+   338	
+   339			parentEvals, err := o.ensureEvaluated(ctx, parent, examples, batchIdx)
+   340			if err != nil {
+   341				return nil, err
+   342			}
+   343	
+   344			var parent2Stats CandidateStats
+   345	
+   346			childID := CandidateID(len(o.pool))
+   347			components, err := o.selectComponentsForIteration(ctx, parent, parent2, useMerge)
+   348			if err != nil {
+   349				return nil, err
+   350			}
+   351			if len(components) == 0 {
+   352				break
+   353			}
+   354	
+   355			var childCand Candidate
+   356			var childLastUpdated map[string]CandidateID
+   357			var rawReflection string
+   358			var operation string
+   359			var updatedKeys []string
+   360	
+   361			if useMerge {
+   362				parent2Evals, err := o.ensureEvaluated(ctx, parent2, examples, batchIdx)
+   363				if err != nil {
+   364					return nil, err
+   365				}
+   366				parent2Stats = AggregateStats(parent2Evals)
+   367	
+   368				// Start with a simple system-aware merge that picks the newest version of each key
+   369				// from the two parents. Then (optionally) run an LLM-based merge for the selected
+   370				// component(s).
+   371				childCand, childLastUpdated = o.systemAwareMerge(parent, parent2)
+   372				if childCand == nil {
+   373					childCand = cloneCandidate(parent.Candidate)
+   374				}
+   375				if childLastUpdated == nil {
+   376					childLastUpdated = cloneLastUpdated(parent.LastUpdated)
+   377				}
+   378	
+   379				rawByKey := map[string]string{}
+   380				for _, key := range components {
+   381					sideInfoA, err := o.buildSideInfo(ctx, "merge_parent_a", key, examples, parentEvals)
+   382					if err != nil {
+   383						return nil, err
+   384					}
+   385					sideInfoB, err := o.buildSideInfo(ctx, "merge_parent_b", key, examples, parent2Evals)
+   386					if err != nil {
+   387						return nil, err
+   388					}
+   389	
+   390					mergedText, mergeRaw, err := o.proposeMerge(ctx, MergeInput{
+   391						ParentA:   cloneCandidate(parent.Candidate),
+   392						ParentB:   cloneCandidate(parent2.Candidate),
+   393						ParamKey:  key,
+   394						ParamA:    parent.Candidate[key],
+   395						ParamB:    parent2.Candidate[key],
+   396						SideInfoA: sideInfoA,
+   397						SideInfoB: sideInfoB,
+   398					})
+   399					if err != nil {
+   400						return nil, err
+   401					}
+   402					rawByKey[key] = mergeRaw
+   403					childCand[key] = mergedText
+   404					childLastUpdated[key] = childID
+   405					updatedKeys = append(updatedKeys, key)
+   406				}
+   407				rawReflection = encodeRawByKey(rawByKey)
+   408				operation = "merge"
+   409			} else {
+   410				childCand = cloneCandidate(parent.Candidate)
+   411				childLastUpdated = cloneLastUpdated(parent.LastUpdated)
+   412				rawByKey := map[string]string{}
+   413				for _, key := range components {
+   414					sideInfo, err := o.buildSideInfo(ctx, "mutate", key, examples, parentEvals)
+   415					if err != nil {
+   416						return nil, err
+   417					}
+   418					current := parent.Candidate[key]
+   419	
+   420					childText, raw, err := o.reflector.Propose(ctx, current, sideInfo)
+   421					if err != nil {
+   422						return nil, err
+   423					}
+   424					rawByKey[key] = raw
+   425					childCand[key] = childText
+   426					childLastUpdated[key] = childID
+   427					updatedKeys = append(updatedKeys, key)
+   428				}
+   429				rawReflection = encodeRawByKey(rawByKey)
+   430				operation = "mutate"
+   431			}
+   432	
+   433			childNode := &candidateNode{
+   434				ID:             childID,
+   435				ParentID:       parent.ID,
+   436				Parent2ID:      -1,
+   437				Candidate:      childCand,
+   438				CreatedAt:      o.cfg.Now(),
+   439				Evaluations:    map[int]EvalResult{},
+   440				ReflectionRaw:  rawReflection,
+   441				Operation:      operation,
+   442				LastUpdated:    childLastUpdated,
+   443				UpdatedKeys:    append([]string(nil), updatedKeys...),
+   444				NextParamIndex: parent.NextParamIndex,
+   445			}
+   446			if useMerge {
+   447				childNode.Parent2ID = parent2.ID
+   448				childNode.NextParamIndex = maxInt(parent.NextParamIndex, parent2.NextParamIndex)
+   449			}
+   450	
+   451			childEvals, err := o.ensureEvaluated(ctx, childNode, examples, batchIdx)
+   452			if err != nil {
+   453				return nil, err
+   454			}
+   455	
+   456			parentStats := AggregateStats(parentEvals)
+   457			childStats := AggregateStats(childEvals)
+   458			baselineStats := parentStats
+   459			if useMerge {
+   460				// For merge, accept relative to the better of the two parents on this batch.
+   461				if parent2Stats.MeanScore > baselineStats.MeanScore {
+   462					baselineStats = parent2Stats
+   463				}
+   464			}
+   465	
+   466			accepted := o.acceptChild(baselineStats, childStats)
+   467			o.updateMergeDue(accepted)
+   468			o.emitOutcomeEvents(operation, parent, parent2, childNode, updatedKeys, parentStats, parent2Stats, baselineStats, childStats, accepted)
+   469	
+   470			if accepted {
+   471				o.pool = append(o.pool, childNode)
+   472				// Update best based on global stats available so far.
+   473				if childGlobal := o.globalStats(childNode); childGlobal.MeanScore > o.globalStats(bestNode).MeanScore {
+   474					bestNode = childNode
+   475				}
+   476			}
+   477	
+   478			// Guard against stagnation: when all evals come from cache and no candidate is accepted,
+   479			// the loop would otherwise spin forever.
+   480			if o.callsUsed == callsAtIterStart && !accepted {
+   481				break
+   482			}
+   483		}
+   484	
+   485		bestStats := o.globalStats(bestNode)
+   486	
+   487		entries := make([]CandidateEntry, 0, len(o.pool))
+   488		for _, n := range o.pool {
+   489			entries = append(entries, CandidateEntry{
+   490				ID:            int(n.ID),
+   491				ParentID:      int(n.ParentID),
+   492				Parent2ID:     int(n.Parent2ID),
+   493				Operation:     n.Operation,
+   494				Hash:          candidateHash(n.Candidate),
+   495				CreatedAt:     n.CreatedAt,
+   496				Candidate:     cloneCandidate(n.Candidate),
+   497				GlobalStats:   o.globalStats(n),
+   498				EvalsCached:   len(o.cache[candidateHash(n.Candidate)]),
+   499				ReflectionRaw: n.ReflectionRaw,
+   500				UpdatedKeys:   append([]string(nil), n.UpdatedKeys...),
+   501			})
+   502		}
+   503	
+   504		return &Result{
+   505			BestCandidate: cloneCandidate(bestNode.Candidate),
+   506			BestStats:     bestStats,
+   507			CallsUsed:     o.callsUsed,
+   508			Candidates:    entries,
+   509		}, nil
+   510	}
+   511	
+   512	func (o *Optimizer) remainingBudget() int {
+   513		return o.cfg.MaxEvalCalls - o.callsUsed
+   514	}
+   515	
+   516	func (o *Optimizer) acceptChild(parent, child CandidateStats) bool {
+   517		// Multi-objective: accept if child dominates parent.
+   518		if len(parent.MeanObjectives) > 1 || len(child.MeanObjectives) > 1 {
+   519			if Dominates(child.MeanObjectives, parent.MeanObjectives) {
+   520				return true
+   521			}
+   522			// Fallback: accept if scalar score improved.
+   523		}
+   524	
+   525		return child.MeanScore > parent.MeanScore+o.cfg.Epsilon
+   526	}
+   527	
+   528	func (o *Optimizer) shouldAttemptMerge() bool {
+   529		if o == nil || len(o.pool) < 2 {
+   530			return false
+   531		}
+   532		scheduler := normalizeMergeScheduler(o.cfg.MergeScheduler)
+   533		switch scheduler {
+   534		case "stagnation_due":
+   535			if o.mergesDue > 0 {
+   536				o.mergesDue--
+   537				return true
+   538			}
+   539			if o.cfg.MergeProbability > 0 && o.rng.Float64() < o.cfg.MergeProbability {
+   540				return true
+   541			}
+   542			return false
+   543		default:
+   544			return o.cfg.MergeProbability > 0 && o.rng.Float64() < o.cfg.MergeProbability
+   545		}
+   546	}
+   547	
+   548	func (o *Optimizer) updateMergeDue(accepted bool) {
+   549		if o == nil {
+   550			return
+   551		}
+   552		if normalizeMergeScheduler(o.cfg.MergeScheduler) != "stagnation_due" {
+   553			return
+   554		}
+   555		if accepted {
+   556			o.mergesDue = 0
+   557			return
+   558		}
+   559		if o.mergesDue < o.cfg.MaxMergesDue {
+   560			o.mergesDue++
+   561		}
+   562	}
+   563	
+   564	func normalizeMergeScheduler(v string) string {
+   565		s := strings.ToLower(strings.TrimSpace(v))
+   566		switch s {
+   567		case "stagnation_due", "probabilistic":
+   568			return s
+   569		default:
+   570			return "probabilistic"
+   571		}
+   572	}
+   573	
+   574	func (o *Optimizer) emitOutcomeEvents(
+   575		operation string,
+   576		parent *candidateNode,
+   577		parent2 *candidateNode,
+   578		child *candidateNode,
+   579		updatedKeys []string,
+   580		parentStats CandidateStats,
+   581		parent2Stats CandidateStats,
+   582		baselineStats CandidateStats,
+   583		childStats CandidateStats,
+   584		accepted bool,
+   585	) {
+   586		if o == nil || o.eventHook == nil || parent == nil || child == nil {
+   587			return
+   588		}
+   589	
+   590		attemptedType := OptimizerEventMutateAttempted
+   591		acceptedType := OptimizerEventMutateAccepted
+   592		rejectedType := OptimizerEventMutateRejected
+   593		if operation == "merge" {
+   594			attemptedType = OptimizerEventMergeAttempted
+   595			acceptedType = OptimizerEventMergeAccepted
+   596			rejectedType = OptimizerEventMergeRejected
+   597		}
+   598	
+   599		parent2ID := -1
+   600		var parent2Score *float64
+   601		if parent2 != nil {
+   602			parent2ID = int(parent2.ID)
+   603			s := parent2Stats.MeanScore
+   604			parent2Score = &s
+   605		}
+   606	
+   607		evBase := OptimizerEvent{
+   608			Iteration:     o.iteration,
+   609			Operation:     operation,
+   610			ParentID:      int(parent.ID),
+   611			Parent2ID:     parent2ID,
+   612			ChildID:       int(child.ID),
+   613			UpdatedKeys:   append([]string(nil), updatedKeys...),
+   614			ParentScore:   parentStats.MeanScore,
+   615			Parent2Score:  parent2Score,
+   616			BaselineScore: baselineStats.MeanScore,
+   617			ChildScore:    childStats.MeanScore,
+   618			Accepted:      accepted,
+   619			CallsUsed:     o.callsUsed,
+   620		}
