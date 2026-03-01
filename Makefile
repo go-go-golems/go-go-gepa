@@ -57,6 +57,9 @@ release:
 bump-glazed:
 	go get github.com/go-go-golems/glazed@latest
 	go get github.com/go-go-golems/clay@latest
+	go get github.com/go-go-golems/geppetto@latest
+	go get github.com/go-go-golems/pinocchio@latest
+	go get github.com/go-go-golems/go-go-goja@latest
 	go mod tidy
 
 install:
