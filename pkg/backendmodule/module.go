@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-go-golems/go-go-os-backend/pkg/docmw"
 )
 
 const (
@@ -27,8 +29,10 @@ type ModuleConfig struct {
 }
 
 type Module struct {
-	config  ModuleConfig
-	runtime GepaRuntime
+	config   ModuleConfig
+	runtime  GepaRuntime
+	docStore *docmw.DocStore
+	docErr   error
 }
 
 func NewModule(config ModuleConfig) (*Module, error) {
@@ -54,9 +58,12 @@ func NewModuleWithRuntime(config ModuleConfig, runtime GepaRuntime) (*Module, er
 		slices.Sort(roots)
 		config.ScriptsRoots = roots
 	}
+	docStore, docErr := loadDocStore()
 	return &Module{
-		config:  config,
-		runtime: runtime,
+		config:   config,
+		runtime:  runtime,
+		docStore: docStore,
+		docErr:   docErr,
 	}, nil
 }
 
@@ -72,6 +79,7 @@ func (m *Module) Manifest() Manifest {
 			"timeline",
 			"schemas",
 			"reflection",
+			"docs",
 		},
 	}
 }
@@ -85,12 +93,20 @@ func (m *Module) MountRoutes(mux *http.ServeMux) error {
 	mux.HandleFunc("/runs", m.handleStartRun)
 	mux.HandleFunc("/runs/", m.handleRunsSubresource)
 	mux.HandleFunc("/schemas/", m.handleSchemaByID)
+	if m.docStore != nil {
+		if err := docmw.MountRoutes(mux, m.docStore); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (m *Module) Init(context.Context) error {
 	if m == nil {
 		return fmt.Errorf("gepa module is nil")
+	}
+	if m.docErr != nil {
+		return fmt.Errorf("load gepa docs store: %w", m.docErr)
 	}
 	return nil
 }
@@ -139,10 +155,16 @@ func (m *Module) Reflection(context.Context) (*ReflectionDocument, error) {
 		},
 		Docs: []ReflectionDocLink{
 			{
-				ID:          "part-1-backendmodule-design",
-				Title:       "Part 1: Internal BackendModule integration only",
-				Path:        "go-go-gepa/ttmp/2026/02/27/GEPA-08-BACKEND-PLUGIN-ROADMAP--backend-roadmap-for-gepa-in-process-integration-and-external-plugin-extraction/design-doc/03-part-1-internal-backendmodule-integration-only.md",
-				Description: "Design document for in-process module contracts",
+				ID:          "gepa-docs-overview",
+				Title:       "GEPA Module Overview",
+				URL:         basePath + "/docs/overview",
+				Description: "Backend module architecture and ownership boundaries",
+			},
+			{
+				ID:          "gepa-repo-readme",
+				Title:       "go-go-gepa README",
+				Path:        "go-go-gepa/README.md",
+				Description: "Repository-level overview and usage",
 			},
 		},
 		APIs: []ReflectionAPI{
@@ -195,6 +217,18 @@ func (m *Module) Reflection(context.Context) (*ReflectionDocument, error) {
 				ResponseSchema: "gepa.runs.timeline.response.v1",
 				ErrorSchema:    "gepa.error.v1",
 			},
+			{
+				ID:      "docs-list",
+				Method:  http.MethodGet,
+				Path:    basePath + "/docs",
+				Summary: "List GEPA module docs",
+			},
+			{
+				ID:      "docs-get",
+				Method:  http.MethodGet,
+				Path:    basePath + "/docs/{slug}",
+				Summary: "Get a GEPA module doc by slug",
+			},
 		},
 		Schemas: []ReflectionSchemaRef{
 			{ID: "gepa.scripts.list.response.v1", Format: "json-schema", URI: basePath + "/schemas/gepa.scripts.list.response.v1"},
@@ -206,6 +240,10 @@ func (m *Module) Reflection(context.Context) (*ReflectionDocument, error) {
 			{ID: "gepa.error.v1", Format: "json-schema", URI: basePath + "/schemas/gepa.error.v1"},
 		},
 	}, nil
+}
+
+func (m *Module) DocStore() *docmw.DocStore {
+	return m.docStore
 }
 
 func (m *Module) handleListScripts(w http.ResponseWriter, req *http.Request) {

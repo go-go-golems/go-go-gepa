@@ -83,6 +83,9 @@ func TestModule_ReflectionAndSchemas(t *testing.T) {
 	require.Equal(t, AppID, doc.AppID)
 	require.NotEmpty(t, doc.APIs)
 	require.NotEmpty(t, doc.Schemas)
+	require.NotEmpty(t, doc.Docs)
+	require.NotNil(t, module.DocStore())
+	require.Equal(t, 3, module.DocStore().Count())
 
 	mux := http.NewServeMux()
 	require.NoError(t, module.MountRoutes(mux))
@@ -96,6 +99,30 @@ func TestModule_ReflectionAndSchemas(t *testing.T) {
 	unknownRR := httptest.NewRecorder()
 	mux.ServeHTTP(unknownRR, unknownReq)
 	require.Equal(t, http.StatusNotFound, unknownRR.Code)
+}
+
+func TestModule_DocsEndpoints(t *testing.T) {
+	module, err := NewModule(ModuleConfig{
+		EnableReflection: true,
+	})
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	require.NoError(t, module.MountRoutes(mux))
+
+	tocReq := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	tocRes := httptest.NewRecorder()
+	mux.ServeHTTP(tocRes, tocReq)
+	require.Equal(t, http.StatusOK, tocRes.Code)
+	require.Contains(t, tocRes.Body.String(), `"module_id":"gepa"`)
+	require.Contains(t, tocRes.Body.String(), `"slug":"overview"`)
+
+	docReq := httptest.NewRequest(http.MethodGet, "/docs/overview", nil)
+	docRes := httptest.NewRecorder()
+	mux.ServeHTTP(docRes, docReq)
+	require.Equal(t, http.StatusOK, docRes.Code)
+	require.Contains(t, docRes.Body.String(), `"slug":"overview"`)
+	require.Contains(t, docRes.Body.String(), "GEPA Module Overview")
 }
 
 func TestModule_HealthFailsForMissingRoot(t *testing.T) {
