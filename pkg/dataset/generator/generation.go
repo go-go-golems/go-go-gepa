@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -14,7 +15,7 @@ type GenerateRowsOptions struct {
 	EventSink     EventSink
 }
 
-func GenerateRows(plugin *Plugin, cfg ResolvedConfig, options GenerateRowsOptions) ([]Row, int, error) {
+func GenerateRows(ctx context.Context, plugin *Plugin, cfg ResolvedConfig, options GenerateRowsOptions) ([]Row, int, error) {
 	if plugin == nil {
 		return nil, 0, fmt.Errorf("dataset generator plugin is nil")
 	}
@@ -45,7 +46,7 @@ func GenerateRows(plugin *Plugin, cfg ResolvedConfig, options GenerateRowsOption
 					"user_template": cfg.Config.Prompting.UserTemplate,
 				},
 			}
-			row, metadata, err := plugin.GenerateOne(input, PluginGenerateOptions{
+			row, metadata, err := plugin.GenerateOne(ctx, input, PluginGenerateOptions{
 				Profile:       options.Profile,
 				EngineOptions: options.EngineOptions,
 				Tags:          options.Tags,

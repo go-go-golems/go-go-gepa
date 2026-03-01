@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,7 +102,7 @@ module.exports = defineDatasetGenerator({
 	}
 
 	rng := &loaderTestRNG{rng: rand.New(rand.NewSource(42))}
-	row, metadata, err := plugin.GenerateOne(map[string]any{"index": 0}, datasetgen.PluginGenerateOptions{
+	row, metadata, err := plugin.GenerateOne(context.Background(), map[string]any{"index": 0}, datasetgen.PluginGenerateOptions{
 		Seed: 42,
 		RNG:  rng,
 	})
@@ -170,7 +172,7 @@ module.exports = defineDatasetGenerator({
 	}
 
 	eventCh := make(chan jsbridge.Event, 8)
-	row, metadata, err := plugin.GenerateOne(map[string]any{"index": 1}, datasetgen.PluginGenerateOptions{
+	row, metadata, err := plugin.GenerateOne(context.Background(), map[string]any{"index": 1}, datasetgen.PluginGenerateOptions{
 		EventSink: func(event jsbridge.Event) {
 			eventCh <- event
 		},
@@ -200,5 +202,56 @@ module.exports = defineDatasetGenerator({
 	}
 	if events[0].Sequence != 1 || events[1].Sequence != 2 {
 		t.Fatalf("expected event sequences 1,2 got %d,%d", events[0].Sequence, events[1].Sequence)
+	}
+}
+
+func TestLoadDatasetGeneratorGenerateOneHonorsCanceledContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "generator-pending.js")
+	script := `
+const { defineDatasetGenerator, DATASET_GENERATOR_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineDatasetGenerator({
+  apiVersion: DATASET_GENERATOR_API_VERSION,
+  kind: "dataset-generator",
+  id: "example.generator.pending",
+  name: "Example Generator Pending",
+  create() {
+    return {
+      generateOne() {
+        return new Promise(() => {});
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := datasetgen.LoadPlugin(rt.vm, rt.runner, rt.reqMod, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("LoadPlugin failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+
+	_, _, err = plugin.GenerateOne(ctx, map[string]any{"index": 1}, datasetgen.PluginGenerateOptions{})
+	if err == nil {
+		t.Fatalf("expected canceled-context error")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context canceled in error, got: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected fast cancellation, took %s", elapsed)
 	}
 }

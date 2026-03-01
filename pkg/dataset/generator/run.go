@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ type RunResult struct {
 	DBWrite        WriteResult
 }
 
-func RunWithRuntime(vm *goja.Runtime, runner runtimeowner.Runner, req *require.RequireModule, input RunInput) (*RunResult, error) {
+func RunWithRuntime(ctx context.Context, vm *goja.Runtime, runner runtimeowner.Runner, req *require.RequireModule, input RunInput) (*RunResult, error) {
 	scriptPath := strings.TrimSpace(input.ScriptPath)
 	configPath := strings.TrimSpace(input.ConfigPath)
 	if scriptPath == "" {
@@ -99,7 +100,7 @@ func RunWithRuntime(vm *goja.Runtime, runner runtimeowner.Runner, req *require.R
 		"command":                    "dataset_generate",
 	}
 
-	rows, skippedInvalid, err := GenerateRows(plugin, resolvedCfg, GenerateRowsOptions{
+	rows, skippedInvalid, err := GenerateRows(ctx, plugin, resolvedCfg, GenerateRowsOptions{
 		Profile:       input.Profile,
 		EngineOptions: input.EngineOptions,
 		Tags:          pluginTags,

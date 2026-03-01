@@ -110,7 +110,7 @@ func (c *DatasetGenerateCommand) RunIntoWriter(ctx context.Context, parsedValues
 	}
 	defer jsrt.Close()
 
-	result, err := datasetgen.RunWithRuntime(jsrt.vm, jsrt.runner, jsrt.reqMod, datasetgen.RunInput{
+	result, err := datasetgen.RunWithRuntime(ctx, jsrt.vm, jsrt.runner, jsrt.reqMod, datasetgen.RunInput{
 		ScriptPath:    s.ScriptPath,
 		ConfigPath:    s.ConfigPath,
 		Profile:       profile,

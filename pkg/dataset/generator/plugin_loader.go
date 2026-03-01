@@ -131,7 +131,7 @@ func (p *Plugin) Meta() PluginMeta {
 	return p.meta
 }
 
-func (p *Plugin) GenerateOne(input map[string]any, opts PluginGenerateOptions) (map[string]any, map[string]any, error) {
+func (p *Plugin) GenerateOne(ctx context.Context, input map[string]any, opts PluginGenerateOptions) (map[string]any, map[string]any, error) {
 	if p == nil || p.vm == nil || p.instance == nil || p.generateFn == nil {
 		return nil, nil, fmt.Errorf("dataset generator: plugin not initialized")
 	}
@@ -159,7 +159,7 @@ func (p *Plugin) GenerateOne(input map[string]any, opts PluginGenerateOptions) (
 		options["events"] = map[string]any{"emit": emit}
 	}
 
-	decodedRaw, err := jsbridge.CallAndResolve(context.Background(), jsbridge.CallAndResolveOptions{
+	decodedRaw, err := jsbridge.CallAndResolve(ctx, jsbridge.CallAndResolveOptions{
 		Op:             fmt.Sprintf("dataset.%s.generateOne", strings.TrimSpace(p.meta.ID)),
 		VM:             p.vm,
 		Runner:         p.runner,
