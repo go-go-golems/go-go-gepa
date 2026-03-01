@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ module.exports = defineOptimizerPlugin({
 		t.Fatalf("hostContext pluginRegistryIdentifier mismatch: %q", got)
 	}
 
-	res, err := plugin.Evaluate(gepaopt.Candidate{"prompt": "test"}, 0, map[string]any{"prompt": "sample"}, pluginEvaluateOptions{})
+	res, err := plugin.Evaluate(context.Background(), gepaopt.Candidate{"prompt": "test"}, 0, map[string]any{"prompt": "sample"}, pluginEvaluateOptions{})
 	if err != nil {
 		t.Fatalf("plugin Evaluate failed: %v", err)
 	}
@@ -254,7 +255,7 @@ func TestSelectComponentsMethodFailsWithoutRuntime(t *testing.T) {
 	p := &optimizerPlugin{selectComponentsFn: func(_ goja.Value, _ ...goja.Value) (goja.Value, error) {
 		return goja.Undefined(), nil
 	}}
-	_, err := p.SelectComponents(gepaopt.ComponentSelectionInput{}, pluginEvaluateOptions{})
+	_, err := p.SelectComponents(context.Background(), gepaopt.ComponentSelectionInput{}, pluginEvaluateOptions{})
 	if err == nil {
 		t.Fatalf("expected error for uninitialized runtime")
 	}
@@ -310,6 +311,7 @@ module.exports = defineOptimizerPlugin({
 	}
 
 	got, err := plugin.Run(
+		context.Background(),
 		map[string]any{"question": "2+2"},
 		gepaopt.Candidate{"prompt": "Solve carefully"},
 		pluginEvaluateOptions{},
@@ -387,6 +389,7 @@ module.exports = defineOptimizerPlugin({
 
 	eventCh := make(chan jsbridge.Event, 8)
 	got, err := plugin.Run(
+		context.Background(),
 		map[string]any{"question": "How are you?"},
 		gepaopt.Candidate{"prompt": "Respond politely"},
 		pluginEvaluateOptions{
@@ -469,11 +472,62 @@ module.exports = defineOptimizerPlugin({
 		t.Fatalf("loadOptimizerPlugin failed: %v", err)
 	}
 
-	res, err := plugin.Evaluate(gepaopt.Candidate{"prompt": "x"}, 0, map[string]any{"prompt": "y"}, pluginEvaluateOptions{})
+	res, err := plugin.Evaluate(context.Background(), gepaopt.Candidate{"prompt": "x"}, 0, map[string]any{"prompt": "y"}, pluginEvaluateOptions{})
 	if err != nil {
 		t.Fatalf("plugin Evaluate failed: %v", err)
 	}
 	if res.Score != 0.9 {
 		t.Fatalf("unexpected score: %v", res.Score)
+	}
+}
+
+func TestLoadOptimizerPluginEvaluateHonorsCanceledContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "plugin-eval-pending.js")
+	script := `
+const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
+
+module.exports = defineOptimizerPlugin({
+  apiVersion: OPTIMIZER_PLUGIN_API_VERSION,
+  kind: "optimizer",
+  id: "example.eval-pending",
+  name: "Example Eval Pending",
+  create() {
+    return {
+      evaluate() {
+        return new Promise(() => {});
+      }
+    };
+  }
+});
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	rt, err := newJSRuntime(tmpDir)
+	if err != nil {
+		t.Fatalf("newJSRuntime failed: %v", err)
+	}
+	defer rt.Close()
+
+	plugin, _, err := loadOptimizerPlugin(rt, scriptPath, map[string]any{"app": "test"})
+	if err != nil {
+		t.Fatalf("loadOptimizerPlugin failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+
+	_, err = plugin.Evaluate(ctx, gepaopt.Candidate{"prompt": "x"}, 0, map[string]any{"prompt": "y"}, pluginEvaluateOptions{})
+	if err == nil {
+		t.Fatalf("expected canceled-context error")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context canceled in error, got: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected fast cancellation, took %s", elapsed)
 	}
 }

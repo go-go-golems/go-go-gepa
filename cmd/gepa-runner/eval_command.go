@@ -144,7 +144,7 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 			return err
 		}
 	} else {
-		examples, err = plugin.Dataset()
+		examples, err = plugin.Dataset(ctx)
 		if err != nil {
 			return err
 		}
@@ -187,7 +187,7 @@ func (c *EvalCommand) RunIntoWriter(ctx context.Context, parsedValues *values.Va
 	candidate := gepaopt.Candidate{"prompt": promptText}
 	evals := make([]gepaopt.ExampleEval, 0, len(examples))
 	for i, ex := range examples {
-		r, err := plugin.Evaluate(candidate, i, ex, pluginEvaluateOptions{
+		r, err := plugin.Evaluate(ctx, candidate, i, ex, pluginEvaluateOptions{
 			Profile:       profile,
 			EngineOptions: engineOptions,
 			Tags:          pluginTags,

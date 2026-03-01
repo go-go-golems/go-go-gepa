@@ -208,7 +208,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (p *optimizerPlugin) callPluginFunction(method string, fn goja.Callable, args ...any) (any, error) {
+func (p *optimizerPlugin) callPluginFunction(ctx context.Context, method string, fn goja.Callable, args ...any) (any, error) {
 	if p == nil || p.rt == nil || p.rt.vm == nil || p.instance == nil {
 		return nil, fmt.Errorf("plugin %s: plugin not initialized", method)
 	}
@@ -217,7 +217,7 @@ func (p *optimizerPlugin) callPluginFunction(method string, fn goja.Callable, ar
 	}
 
 	op := fmt.Sprintf("optimizer.%s.%s", strings.TrimSpace(p.meta.ID), strings.TrimSpace(method))
-	resolved, err := jsbridge.CallAndResolve(context.Background(), jsbridge.CallAndResolveOptions{
+	resolved, err := jsbridge.CallAndResolve(ctx, jsbridge.CallAndResolveOptions{
 		Op:             op,
 		VM:             p.rt.vm,
 		Runner:         p.rt.runner,
@@ -257,7 +257,7 @@ func (p *optimizerPlugin) makeEventHooks(method string, sink jsbridge.EventSink)
 	return emit, map[string]any{"emit": emit}
 }
 
-func (p *optimizerPlugin) Dataset() ([]any, error) {
+func (p *optimizerPlugin) Dataset(ctx context.Context) ([]any, error) {
 	if p == nil || p.rt == nil || p.instance == nil {
 		return nil, fmt.Errorf("plugin dataset: plugin not initialized")
 	}
@@ -265,7 +265,7 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 		return nil, fmt.Errorf("plugin dataset: instance.dataset() not found (provide --dataset)")
 	}
 
-	decoded, err := p.callPluginFunction("dataset", p.datasetFn, goja.Undefined())
+	decoded, err := p.callPluginFunction(ctx, "dataset", p.datasetFn, goja.Undefined())
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin dataset: call failed")
 	}
@@ -276,7 +276,7 @@ func (p *optimizerPlugin) Dataset() ([]any, error) {
 	return nil, fmt.Errorf("plugin dataset: expected array, got %T", decoded)
 }
 
-func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int, example any, opts pluginEvaluateOptions) (gepaopt.EvalResult, error) {
+func (p *optimizerPlugin) Evaluate(ctx context.Context, candidate gepaopt.Candidate, exampleIndex int, example any, opts pluginEvaluateOptions) (gepaopt.EvalResult, error) {
 	if p == nil || p.rt == nil || p.instance == nil {
 		return gepaopt.EvalResult{}, fmt.Errorf("plugin evaluate: plugin not initialized")
 	}
@@ -299,7 +299,7 @@ func (p *optimizerPlugin) Evaluate(candidate gepaopt.Candidate, exampleIndex int
 		options["events"] = events
 	}
 
-	decoded, err := p.callPluginFunction("evaluate", p.evaluateFn, input, options)
+	decoded, err := p.callPluginFunction(ctx, "evaluate", p.evaluateFn, input, options)
 	if err != nil {
 		return gepaopt.EvalResult{}, errors.Wrap(err, "plugin evaluate: call failed")
 	}
@@ -320,7 +320,7 @@ func (p *optimizerPlugin) HasRun() bool {
 	return p != nil && p.runFn != nil
 }
 
-func (p *optimizerPlugin) Run(input map[string]any, candidate gepaopt.Candidate, opts pluginEvaluateOptions) (any, error) {
+func (p *optimizerPlugin) Run(ctx context.Context, input map[string]any, candidate gepaopt.Candidate, opts pluginEvaluateOptions) (any, error) {
 	if p == nil || p.rt == nil || p.instance == nil {
 		return nil, fmt.Errorf("plugin run: plugin not initialized")
 	}
@@ -339,7 +339,7 @@ func (p *optimizerPlugin) Run(input map[string]any, candidate gepaopt.Candidate,
 		options["events"] = events
 	}
 
-	decoded, err := p.callPluginFunction("run", p.runFn, input, options)
+	decoded, err := p.callPluginFunction(ctx, "run", p.runFn, input, options)
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin run: call failed")
 	}
@@ -350,7 +350,7 @@ func (p *optimizerPlugin) HasMerge() bool {
 	return p != nil && p.mergeFn != nil
 }
 
-func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOptions) (string, string, error) {
+func (p *optimizerPlugin) Merge(ctx context.Context, in gepaopt.MergeInput, opts pluginEvaluateOptions) (string, string, error) {
 	if p == nil || p.rt == nil || p.instance == nil || p.mergeFn == nil {
 		return "", "", fmt.Errorf("plugin merge: merge() not available")
 	}
@@ -374,7 +374,7 @@ func (p *optimizerPlugin) Merge(in gepaopt.MergeInput, opts pluginEvaluateOption
 		options["events"] = events
 	}
 
-	decoded, err := p.callPluginFunction("merge", p.mergeFn, input, options)
+	decoded, err := p.callPluginFunction(ctx, "merge", p.mergeFn, input, options)
 	if err != nil {
 		return "", "", errors.Wrap(err, "plugin merge: call failed")
 	}
@@ -400,7 +400,7 @@ func (p *optimizerPlugin) HasInitialCandidate() bool {
 	return p != nil && p.initialCandidateFn != nil
 }
 
-func (p *optimizerPlugin) InitialCandidate(opts pluginEvaluateOptions) (gepaopt.Candidate, error) {
+func (p *optimizerPlugin) InitialCandidate(ctx context.Context, opts pluginEvaluateOptions) (gepaopt.Candidate, error) {
 	if p == nil || p.rt == nil || p.instance == nil || p.initialCandidateFn == nil {
 		return nil, fmt.Errorf("plugin initialCandidate: initialCandidate() not available")
 	}
@@ -413,7 +413,7 @@ func (p *optimizerPlugin) InitialCandidate(opts pluginEvaluateOptions) (gepaopt.
 		options["emitEvent"] = emit
 		options["events"] = events
 	}
-	decoded, err := p.callPluginFunction("initialCandidate", p.initialCandidateFn, options)
+	decoded, err := p.callPluginFunction(ctx, "initialCandidate", p.initialCandidateFn, options)
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin initialCandidate: call failed")
 	}
@@ -424,7 +424,7 @@ func (p *optimizerPlugin) HasSelectComponents() bool {
 	return p != nil && p.selectComponentsFn != nil
 }
 
-func (p *optimizerPlugin) SelectComponents(in gepaopt.ComponentSelectionInput, opts pluginEvaluateOptions) ([]string, error) {
+func (p *optimizerPlugin) SelectComponents(ctx context.Context, in gepaopt.ComponentSelectionInput, opts pluginEvaluateOptions) ([]string, error) {
 	if p == nil || p.rt == nil || p.instance == nil || p.selectComponentsFn == nil {
 		return nil, fmt.Errorf("plugin selectComponents: selectComponents() not available")
 	}
@@ -446,7 +446,7 @@ func (p *optimizerPlugin) SelectComponents(in gepaopt.ComponentSelectionInput, o
 		options["emitEvent"] = emit
 		options["events"] = events
 	}
-	decoded, err := p.callPluginFunction("selectComponents", p.selectComponentsFn, input, options)
+	decoded, err := p.callPluginFunction(ctx, "selectComponents", p.selectComponentsFn, input, options)
 	if err != nil {
 		return nil, errors.Wrap(err, "plugin selectComponents: call failed")
 	}
@@ -461,7 +461,7 @@ func (p *optimizerPlugin) HasComponentSideInfo() bool {
 	return p != nil && p.componentSideInfoFn != nil
 }
 
-func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts pluginEvaluateOptions) (string, error) {
+func (p *optimizerPlugin) ComponentSideInfo(ctx context.Context, in gepaopt.SideInfoInput, opts pluginEvaluateOptions) (string, error) {
 	if p == nil || p.rt == nil || p.instance == nil || p.componentSideInfoFn == nil {
 		return "", fmt.Errorf("plugin componentSideInfo: componentSideInfo() not available")
 	}
@@ -483,7 +483,7 @@ func (p *optimizerPlugin) ComponentSideInfo(in gepaopt.SideInfoInput, opts plugi
 		options["emitEvent"] = emit
 		options["events"] = events
 	}
-	decoded, err := p.callPluginFunction("componentSideInfo", p.componentSideInfoFn, input, options)
+	decoded, err := p.callPluginFunction(ctx, "componentSideInfo", p.componentSideInfoFn, input, options)
 	if err != nil {
 		return "", errors.Wrap(err, "plugin componentSideInfo: call failed")
 	}

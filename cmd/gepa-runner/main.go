@@ -206,7 +206,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			seedCandidate = gepaopt.Candidate{"prompt": seedText}
 			seedTextForRecord = seedText
 		} else if s.Seedless {
-			cand, err := plugin.InitialCandidate(pluginEvaluateOptions{
+			cand, err := plugin.InitialCandidate(ctx, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
 				Tags:          pluginTags,
@@ -238,7 +238,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 			return err
 		}
 	} else {
-		examples, err = plugin.Dataset()
+		examples, err = plugin.Dataset(ctx)
 		if err != nil {
 			return err
 		}
@@ -248,7 +248,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 
 	evalFn := func(ctx context.Context, cand gepaopt.Candidate, exampleIndex int, example any) (gepaopt.EvalResult, error) {
-		return plugin.Evaluate(cand, exampleIndex, example, pluginEvaluateOptions{
+		return plugin.Evaluate(ctx, cand, exampleIndex, example, pluginEvaluateOptions{
 			Profile:       profile,
 			EngineOptions: engineOptions,
 			Tags:          pluginTags,
@@ -287,7 +287,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	opt := gepaopt.NewOptimizer(cfg, evalFn, reflector)
 	if plugin.HasMerge() {
 		opt.SetMergeFunc(func(ctx context.Context, in gepaopt.MergeInput) (string, string, error) {
-			return plugin.Merge(in, pluginEvaluateOptions{
+			return plugin.Merge(ctx, in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
 				Tags:          pluginTags,
@@ -296,7 +296,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 	if plugin.HasSelectComponents() {
 		opt.SetComponentSelectorFunc(func(ctx context.Context, in gepaopt.ComponentSelectionInput) ([]string, error) {
-			return plugin.SelectComponents(in, pluginEvaluateOptions{
+			return plugin.SelectComponents(ctx, in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
 				Tags:          pluginTags,
@@ -305,7 +305,7 @@ func (c *OptimizeCommand) RunIntoWriter(ctx context.Context, parsedValues *value
 	}
 	if plugin.HasComponentSideInfo() {
 		opt.SetSideInfoFunc(func(ctx context.Context, in gepaopt.SideInfoInput) (string, error) {
-			return plugin.ComponentSideInfo(in, pluginEvaluateOptions{
+			return plugin.ComponentSideInfo(ctx, in, pluginEvaluateOptions{
 				Profile:       profile,
 				EngineOptions: engineOptions,
 				Tags:          pluginTags,

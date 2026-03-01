@@ -257,7 +257,7 @@ func (c *CandidateRunCommand) RunIntoWriter(ctx context.Context, parsedValues *v
 		pluginTags[fmt.Sprintf("tag_%s", k)] = v
 	}
 
-	outputResult, err = plugin.Run(inputPayload, resolvedCfg.Candidate, pluginEvaluateOptions{
+	outputResult, err = plugin.Run(ctx, inputPayload, resolvedCfg.Candidate, pluginEvaluateOptions{
 		Profile:       effectiveProfile,
 		EngineOptions: effectiveEngineOptions,
 		Tags:          pluginTags,

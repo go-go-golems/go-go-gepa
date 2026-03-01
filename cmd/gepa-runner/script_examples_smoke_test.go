@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -129,7 +130,7 @@ func TestExampleScriptsLoadAndExposeExpectedHooks(t *testing.T) {
 				t.Fatalf("HasComponentSideInfo mismatch: got=%v want=%v", got, tc.expectComponentSI)
 			}
 
-			dataset, err := plugin.Dataset()
+			dataset, err := plugin.Dataset(context.Background())
 			if err != nil {
 				t.Fatalf("Dataset() failed: %v", err)
 			}
