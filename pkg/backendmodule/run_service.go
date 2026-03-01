@@ -111,6 +111,7 @@ func (s *InMemoryRunService) Start(ctx context.Context, script ScriptDescriptor,
 		s.mu.Unlock()
 		return RunRecord{}, fmt.Errorf("%w (limit=%d)", ErrConcurrencyLimitExceeded, s.maxConcurrent)
 	}
+	// #nosec G118 -- cancel is persisted in s.cancelFuncs and invoked from Cancel() or run completion paths.
 	runCtx, cancel := context.WithTimeout(ctx, s.runTimeout)
 
 	record := &RunRecord{
