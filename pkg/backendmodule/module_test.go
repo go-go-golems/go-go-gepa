@@ -260,3 +260,20 @@ func TestModule_EventsEndpointRejectsInvalidAfterSeq(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(payload), "invalid afterSeq"))
 }
+
+func TestModule_EventsEndpointReturnsNotFoundForUnknownRun(t *testing.T) {
+	module, err := NewModule(ModuleConfig{
+		EnableReflection: true,
+	})
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	require.NoError(t, module.MountRoutes(mux))
+
+	req := httptest.NewRequest(http.MethodGet, "/runs/does-not-exist/events?afterSeq=0", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.NotContains(t, rr.Body.String(), "retry: 1000")
+}

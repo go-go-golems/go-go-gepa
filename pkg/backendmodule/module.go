@@ -364,6 +364,15 @@ func (m *Module) handleRunEvents(w http.ResponseWriter, req *http.Request, runID
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	run, foundRun, err := m.runtime.GetRun(req.Context(), runID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !foundRun {
+		http.NotFound(w, req)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -393,7 +402,7 @@ func (m *Module) handleRunEvents(w http.ResponseWriter, req *http.Request, runID
 			afterSeq = event.Seq
 		}
 
-		run, foundRun, err := m.runtime.GetRun(req.Context(), runID)
+		run, foundRun, err = m.runtime.GetRun(req.Context(), runID)
 		if err != nil {
 			return
 		}
