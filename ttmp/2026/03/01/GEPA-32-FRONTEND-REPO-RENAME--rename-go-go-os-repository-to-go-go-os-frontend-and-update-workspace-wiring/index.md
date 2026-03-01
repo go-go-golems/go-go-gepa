@@ -11,13 +11,22 @@ Topics:
 DocType: index
 Intent: long-term
 Owners: []
-RelatedFiles: []
+RelatedFiles:
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-arc-agi-3/apps/arc-agi-player/tsconfig.json
+      Note: ARC consumer path rewiring
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-app-inventory/apps/inventory/tsconfig.json
+      Note: Inventory consumer path rewiring
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/go-go-os-frontend/README.md
+      Note: Renamed frontend repo identity
+    - Path: workspaces/2026-02-22/add-gepa-optimizer/wesen-os/apps/os-launcher/tsconfig.json
+      Note: Consumer workspace path rewiring
 ExternalSources: []
 Summary: Post-GitHub-rename implementation ticket for migrating local workspace and cross-repo aliases from go-go-os to go-go-os-frontend.
 LastUpdated: 2026-03-01T07:12:30.905562332-05:00
 WhatFor: Use this ticket to track concrete migration steps and validation evidence for the frontend repository rename follow-up.
 WhenToUse: When workspace path aliases, remotes, and docs must be aligned to go-go-os-frontend after the GitHub rename.
 ---
+
 
 # Rename go-go-os repository to go-go-os-frontend and update workspace wiring
 
