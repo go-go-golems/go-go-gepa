@@ -70,6 +70,10 @@ func NewOptimizeCommand() (*OptimizeCommand, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create geppetto parameter layer")
 	}
+	geppettoSections, err = ensureProfileSettingsSection(geppettoSections)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to ensure profile settings section")
+	}
 
 	description := cmds.NewCommandDescription(
 		"optimize",

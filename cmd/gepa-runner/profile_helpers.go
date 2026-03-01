@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/go-go-golems/glazed/pkg/cli"
+	"github.com/go-go-golems/glazed/pkg/cmds/schema"
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 )
 
@@ -12,9 +14,27 @@ func resolvePinocchioProfile(parsedValues *values.Values) (string, error) {
 		Profile string `glazed:"profile"`
 	}
 	if err := parsedValues.DecodeSectionInto(cli.ProfileSettingsSlug, &profileSettings); err != nil {
+		// Older geppetto section bundles may omit profile-settings entirely.
+		// Treat that as "no explicit profile selected" for backward compatibility.
+		if strings.Contains(err.Error(), fmt.Sprintf("section %s not found", cli.ProfileSettingsSlug)) {
+			return "", nil
+		}
 		return "", err
 	}
 	return strings.TrimSpace(profileSettings.Profile), nil
+}
+
+func ensureProfileSettingsSection(sections []schema.Section) ([]schema.Section, error) {
+	for _, section := range sections {
+		if section != nil && section.GetSlug() == cli.ProfileSettingsSlug {
+			return sections, nil
+		}
+	}
+	profileSection, err := cli.NewProfileSettingsSection()
+	if err != nil {
+		return nil, err
+	}
+	return append(sections, profileSection), nil
 }
 
 func resolveEngineOptions(parsedValues *values.Values) (map[string]any, error) {

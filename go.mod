@@ -6,8 +6,8 @@ require (
 	github.com/dop251/goja v0.0.0-20260219130522-0ba9a5494a59
 	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14
 	github.com/go-go-golems/clay v0.4.0
-	github.com/go-go-golems/geppetto v0.9.1
-	github.com/go-go-golems/glazed v1.0.1
+	github.com/go-go-golems/geppetto v0.10.3
+	github.com/go-go-golems/glazed v1.0.4
 	github.com/go-go-golems/go-go-goja v0.4.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.34
@@ -135,7 +135,7 @@ require (
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	google.golang.org/api v0.266.0 // indirect
+	google.golang.org/api v0.268.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260203192932-546029d2fa20 // indirect
 	google.golang.org/grpc v1.78.0 // indirect
