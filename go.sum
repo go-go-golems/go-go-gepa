@@ -114,6 +114,8 @@ github.com/go-go-golems/glazed v1.0.4 h1:QOrPFq3RnL36I3yYkbc/frMsGDyWIZnwpQyNAQP
 github.com/go-go-golems/glazed v1.0.4/go.mod h1:k+KwcIT68nAam+p1JTGbCtT4Pr20sCwYPKr1FFHIazo=
 github.com/go-go-golems/go-go-goja v0.4.0 h1:ZsryOWZR8pBsDjyh+lI6NPNtwafD3mrP0Ki/c2X3CWg=
 github.com/go-go-golems/go-go-goja v0.4.0/go.mod h1:oBDrZqxdjrfJnVWRn/MliybokXf8gsBANNiWKOSXfZY=
+github.com/go-go-golems/go-go-os-backend v0.0.3 h1:REywueg/ctJNOXNibBYsGh2qzxKZc6GS/cWKCqnCe5M=
+github.com/go-go-golems/go-go-os-backend v0.0.3/go.mod h1:0DY27hqP/ZQywsyHI5mOnA9EHq2GjlxtbAehcwAPBEw=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
