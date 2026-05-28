@@ -16,7 +16,6 @@ import (
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 	"github.com/pkg/errors"
-	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 

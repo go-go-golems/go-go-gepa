@@ -70,3 +70,11 @@ bump-glazed:
 
 install:
 	go install $(CMD_DIR)
+
+.PHONY: logcopter-generate
+logcopter-generate:
+	GOWORK=off go generate ./...
+
+.PHONY: logcopter-check
+logcopter-check:
+	GOWORK=off go tool logcopter-gen -area-prefix go-go-golems.go-go-gepa -strip-prefix github.com/go-go-golems/go-go-gepa -check ./cmd/... ./pkg/...
