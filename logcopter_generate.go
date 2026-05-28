@@ -1,0 +1,3 @@
+package gepa
+
+//go:generate go tool logcopter-gen -area-prefix go-go-golems.go-go-gepa -strip-prefix github.com/go-go-golems/go-go-gepa ./cmd/... ./pkg/...

@@ -36,6 +36,7 @@ func TestCandidateRunStreamCLIOutput(t *testing.T) {
 	scriptPath := filepath.Join(tmp, "candidate-plugin.js")
 	configPath := filepath.Join(tmp, "candidate-config.yaml")
 	inputPath := filepath.Join(tmp, "candidate-input.json")
+	profileRegistryPath := filepath.Join(tmp, "profiles.yaml")
 
 	script := `
 const { defineOptimizerPlugin, OPTIMIZER_PLUGIN_API_VERSION } = require("gepa/plugins");
@@ -70,6 +71,17 @@ metadata:
   candidate_id: c-1
 `
 	input := `{"question":"How are you?"}`
+	profileRegistry := `slug: test-profiles
+profiles:
+  test:
+    slug: test
+    display_name: Test
+    runtime:
+      step_settings_patch:
+        ai-chat:
+          ai-api-type: openai
+          ai-engine: test
+`
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
 		t.Fatalf("write script: %v", err)
@@ -80,6 +92,9 @@ metadata:
 	if err := os.WriteFile(inputPath, []byte(input), 0o644); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
+	if err := os.WriteFile(profileRegistryPath, []byte(profileRegistry), 0o644); err != nil {
+		t.Fatalf("write profile registry: %v", err)
+	}
 	out, err := runGepaRunnerCLI(t,
 		"candidate", "run",
 		"--script", scriptPath,
@@ -87,6 +102,8 @@ metadata:
 		"--input-file", inputPath,
 		"--stream",
 		"--output-format", "json",
+		"--profile", "test",
+		"--profile-registries", profileRegistryPath,
 	)
 	if err != nil {
 		t.Fatalf("candidate run failed: %v\noutput:\n%s", err, out)

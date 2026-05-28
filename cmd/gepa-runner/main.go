@@ -22,7 +22,6 @@ import (
 	runnerdoc "github.com/go-go-golems/go-go-gepa/cmd/gepa-runner/doc"
 	gepaopt "github.com/go-go-golems/go-go-gepa/pkg/optimizer/gepa"
 	"github.com/pkg/errors"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
